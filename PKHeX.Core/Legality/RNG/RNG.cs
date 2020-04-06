@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 
 namespace PKHeX.Core
@@ -180,7 +181,7 @@ namespace PKHeX.Core
         internal IEnumerable<uint> RecoverLower16BitsEuclid16(uint first, uint second)
         {
             const int bitshift = 32;
-            const long inc = 0x100000000; // 1 << 32;
+            const long inc = 1L << bitshift;
             return GetPossibleSeedsEuclid(first, second, bitshift, inc);
         }
 
@@ -200,7 +201,7 @@ namespace PKHeX.Core
         internal IEnumerable<uint> RecoverLower16BitsEuclid15(uint first, uint second)
         {
             const int bitshift = 31;
-            const long inc = 0x080000000; // 1 << 31;
+            const long inc = 1L << bitshift;
             return GetPossibleSeedsEuclid(first, second, bitshift, inc);
         }
 
@@ -217,6 +218,28 @@ namespace PKHeX.Core
                 if (remainder >> 16 == 0)
                     yield return Prev(first | (uint) fix);
             }
+        }
+    }
+
+    public enum RNGType
+    {
+        None,
+        LCRNG,
+        XDRNG,
+        ARNG,
+    }
+
+    public static class RNGTypeUtil
+    {
+        public static RNG GetRNG(this RNGType type)
+        {
+            return type switch
+            {
+                RNGType.LCRNG => RNG.LCRNG,
+                RNGType.XDRNG => RNG.XDRNG,
+                RNGType.ARNG => RNG.ARNG,
+                _ => throw new ArgumentException(nameof(type))
+            };
         }
     }
 }

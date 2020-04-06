@@ -7,7 +7,7 @@ namespace PKHeX.Core.Searching
     /// <summary>
     /// <see cref="PKM"/> search settings &amp; searcher
     /// </summary>
-    public class SearchSettings
+    public sealed class SearchSettings
     {
         public int Format { private get; set; }
         public int Generation { private get; set; }
@@ -31,7 +31,7 @@ namespace PKHeX.Core.Searching
         public int EVType { private get; set; }
 
         public CloneDetectionMethod SearchClones { private get; set; }
-        public IList<string> BatchInstructions { private get; set; }
+        public IList<string> BatchInstructions { private get; set; } = Array.Empty<string>();
 
         public readonly List<int> Moves = new List<int>();
 
@@ -135,7 +135,9 @@ namespace PKHeX.Core.Searching
             return res.Where(pk => pk.IsEgg);
         }
 
-        public GameVersion[] GetVersions(SaveFile SAV, GameVersion fallback)
+        public IReadOnlyList<GameVersion> GetVersions(SaveFile SAV) => GetVersions(SAV, GetFallbackVersion(SAV));
+
+        public IReadOnlyList<GameVersion> GetVersions(SaveFile SAV, GameVersion fallback)
         {
             if (Version > 0)
                 return new[] {(GameVersion) Version};
@@ -147,6 +149,14 @@ namespace PKHeX.Core.Searching
             }
 
             return GameUtil.GameVersions;
+        }
+
+        private static GameVersion GetFallbackVersion(SaveFile SAV)
+        {
+            var parent = GameUtil.GetMetLocationVersionGroup((GameVersion)SAV.Game);
+            if (parent == GameVersion.Invalid)
+                parent = GameUtil.GetMetLocationVersionGroup(GameUtil.GetVersion(SAV.Generation));
+            return parent;
         }
     }
 }

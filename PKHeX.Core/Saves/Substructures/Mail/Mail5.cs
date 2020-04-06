@@ -2,26 +2,14 @@
 
 namespace PKHeX.Core
 {
-    public class Mail5 : Mail
+    public sealed class Mail5 : Mail
     {
-        private const int SIZE = 0x38;
+        public const int SIZE = 0x38;
 
-        public Mail5(SAV5 sav, int index)
-        {
-            DataOffset = (index * SIZE) + 0x1DD00;
-            Data = sav.GetData(DataOffset, SIZE);
-        }
+        public Mail5(byte[] data, int ofs = -1) : base(data, ofs) { }
 
-        public Mail5(byte[] data)
+        public Mail5(byte? lang, byte? ver) : base(new byte[SIZE])
         {
-            Data = data;
-            DataOffset = -1;
-        }
-
-        public Mail5(byte? lang = null, byte? ver = null)
-        {
-            Data = new byte[SIZE];
-            DataOffset = -1;
             if (lang != null) AuthorLanguage = (byte)lang;
             if (ver != null) AuthorVersion = (byte)ver;
             ResetData();
@@ -33,7 +21,7 @@ namespace PKHeX.Core
             AuthorSID = 0;
             AuthorGender = 0;
             MailType = 0xFF;
-            AuthorName = "";
+            AuthorName = string.Empty;
             for (int i = 0; i < 3; i++)
                 SetMisc(i, 0);
             MessageEnding = 0xFFFF;
@@ -46,10 +34,10 @@ namespace PKHeX.Core
 
         public override void CopyTo(PK5 pk5) => pk5.HeldMailData = Data;
         public override ushort AuthorTID { get => BitConverter.ToUInt16(Data, 0); set => BitConverter.GetBytes(value).CopyTo(Data, 0); }
-        public ushort AuthorSID { get => BitConverter.ToUInt16(Data, 2); set => BitConverter.GetBytes(value).CopyTo(Data, 2); }
+        public override ushort AuthorSID { get => BitConverter.ToUInt16(Data, 2); set => BitConverter.GetBytes(value).CopyTo(Data, 2); }
         public override byte AuthorGender { get => Data[4]; set => Data[4] = value; }
-        public byte AuthorLanguage { get => Data[5]; set => Data[5] = value; }
-        public byte AuthorVersion { get => Data[6]; set => Data[6] = value; }
+        public override byte AuthorLanguage { get => Data[5]; set => Data[5] = value; }
+        public override byte AuthorVersion { get => Data[6]; set => Data[6] = value; }
         public override int MailType { get => Data[7]; set => Data[7] = (byte)value; }
         public override string AuthorName { get => StringConverter.GetString5(Data, 8, 0x10); set => StringConverter.SetString5(value, 7, 8).CopyTo(Data, 8); }
         public int GetMisc(int index) => BitConverter.ToUInt16(Data, 0x1C - (index * 2));

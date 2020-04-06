@@ -25,9 +25,9 @@ namespace PKHeX.Core
         private static IEnumerable<WC3> GetIngameCXDData()
         {
             var langs = new[]{LanguageID.Japanese, LanguageID.English, LanguageID.French, LanguageID.Italian, LanguageID.German, LanguageID.Spanish};
-            var h = new[] {null, "ダニー", "HORDEL", "VOLKER", "ODINO", "HORAZ", null, "HORDEL"};
-            var d = new[] {null, "ギンザル", "DUKING", "DOKING", "RODRIGO", "GRAND", null, "GERMÁN"};
-            var m = new[] {null, "バトルやま", "MATTLE", "MT BATAILL", "MONTE LOTT", "DUELLBERG﻿", null, "ERNESTO"}; // truncated on ck3->pk3 transfer
+            var h = new[] {string.Empty, "ダニー", "HORDEL", "VOLKER", "ODINO", "HORAZ", string.Empty, "HORDEL"};
+            var d = new[] {string.Empty, "ギンザル", "DUKING", "DOKING", "RODRIGO", "GRAND", string.Empty, "GERMÁN"};
+            var m = new[] {string.Empty, "バトルやま", "MATTLE", "MT BATAILL", "MONTE LOTT", "DUELLBERG﻿", string.Empty, "ERNESTO"}; // truncated on ck3->pk3 transfer
 
             return langs.SelectMany(l => GetIngame((int)l));
             IEnumerable<WC3> GetIngame(int l)
@@ -112,11 +112,11 @@ namespace PKHeX.Core
             new WC3 { Species = 385, Level = 5, Version = GameVersion.RS, Method = PIDType.Channel, TID = 40122, OT_Gender = 3,SID = -1, OT_Name = "CHANNEL", CardTitle = "Channel Jirachi", Met_Level = 0 },
 
             // Aura Mew
-            new WC3 { Species = 151, Level = 10, Version = GameVersion.R, Language = (int)LanguageID.English, Method = PIDType.BACD_R, TID = 20078, OT_Name = "Aura", Fateful = true }, // Mew
-            new WC3 { Species = 151, Level = 10, Version = GameVersion.R, Language = (int)LanguageID.French,  Method = PIDType.BACD_R, TID = 20078, OT_Name = "Aura", Fateful = true }, // Mew
-            new WC3 { Species = 151, Level = 10, Version = GameVersion.R, Language = (int)LanguageID.Italian, Method = PIDType.BACD_R, TID = 20078, OT_Name = "Aura", Fateful = true }, // Mew
-            new WC3 { Species = 151, Level = 10, Version = GameVersion.R, Language = (int)LanguageID.German,  Method = PIDType.BACD_R, TID = 20078, OT_Name = "Aura", Fateful = true }, // Mew
-            new WC3 { Species = 151, Level = 10, Version = GameVersion.R, Language = (int)LanguageID.Spanish, Method = PIDType.BACD_R, TID = 20078, OT_Name = "Aura", Fateful = true }, // Mew
+            new WC3 { Species = 151, Level = 10, Version = GameVersion.R, Language = (int)LanguageID.English, Method = PIDType.BACD_R, TID = 20078, OT_Name = "Aura", Fateful = true, Shiny = Shiny.Never }, // Mew
+            new WC3 { Species = 151, Level = 10, Version = GameVersion.R, Language = (int)LanguageID.French,  Method = PIDType.BACD_R, TID = 20078, OT_Name = "Aura", Fateful = true, Shiny = Shiny.Never }, // Mew
+            new WC3 { Species = 151, Level = 10, Version = GameVersion.R, Language = (int)LanguageID.Italian, Method = PIDType.BACD_R, TID = 20078, OT_Name = "Aura", Fateful = true, Shiny = Shiny.Never }, // Mew
+            new WC3 { Species = 151, Level = 10, Version = GameVersion.R, Language = (int)LanguageID.German,  Method = PIDType.BACD_R, TID = 20078, OT_Name = "Aura", Fateful = true, Shiny = Shiny.Never }, // Mew
+            new WC3 { Species = 151, Level = 10, Version = GameVersion.R, Language = (int)LanguageID.Spanish, Method = PIDType.BACD_R, TID = 20078, OT_Name = "Aura", Fateful = true, Shiny = Shiny.Never }, // Mew
 
             // English Events
             new WC3 { Species = 006, Level = 70, Version = GameVersion.R, Moves = new[] {017,163,082,083}, Language = (int)LanguageID.English, Method = PIDType.BACD_R, TID = 06227, OT_Name = "10ANNIV", Shiny = Shiny.Never }, // Charizard
@@ -256,6 +256,6 @@ namespace PKHeX.Core
             new WC3 { Species = 360, IsEgg = true, Level = 05, Met_Level = 05, TID = 50318, OT_Gender = 0, OT_Name = "ポケパーク", Version = GameVersion.R, Moves = new[]{321}, Method = PIDType.BACD_R }, // Wynaut with Tickle
         };
 
-        internal static readonly WC3[] Encounter_WC3 = EncounterUtil.ConcatAll(Encounter_Event3, Encounter_Event3_RS, Encounter_Event3_FRLG, Encounter_Event3_Common);
+        internal static readonly WC3[] Encounter_WC3 = ArrayUtil.ConcatAll(Encounter_Event3, Encounter_Event3_RS, Encounter_Event3_FRLG, Encounter_Event3_Common);
     }
 }

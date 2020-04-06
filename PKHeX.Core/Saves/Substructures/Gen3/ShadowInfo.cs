@@ -4,29 +4,37 @@ using System.Linq;
 
 namespace PKHeX.Core
 {
-    public class ShadowInfoTableXD
+    public sealed class ShadowInfoTableXD
     {
         private readonly List<ShadowInfoEntryXD> Entries;
         private readonly int MaxLength;
+        private const int SIZE_ENTRY = ShadowInfoEntryXD.SIZE_ENTRY;
 
         public ShadowInfoTableXD(byte[] data)
         {
-            Entries = new List<ShadowInfoEntryXD>();
             MaxLength = data.Length;
-            const int eSize = ShadowInfoEntryXD.SIZE_ENTRY;
-            int eCount = data.Length/eSize;
+            int eCount = data.Length/SIZE_ENTRY;
+            Entries = new List<ShadowInfoEntryXD>(eCount);
             for (int i = 0; i < eCount; i++)
             {
-                byte[] d = new byte[eSize];
-                Array.Copy(data, i*eSize, d, 0, eSize);
-
-                var entry = new ShadowInfoEntryXD(d);
+                var entry = GetEntry(data, i);
                 //if (entry.Species != 0)
                     Entries.Add(entry);
             }
         }
 
-        public byte[] FinalData => Entries.SelectMany(entry => entry.Data).Take(MaxLength).ToArray();
+        public ShadowInfoTableXD() : this(new byte[SIZE_ENTRY * 200]) { }
+
+        private static ShadowInfoEntryXD GetEntry(byte[] data, int i)
+        {
+            var d = new byte[SIZE_ENTRY];
+            Array.Copy(data, i * SIZE_ENTRY, d, 0, SIZE_ENTRY);
+
+            var entry = new ShadowInfoEntryXD(d);
+            return entry;
+        }
+
+        public byte[] Write() => Entries.SelectMany(entry => entry.Data).Take(MaxLength).ToArray();
 
         public ShadowInfoEntryXD GetEntry(int Species, uint PID)
         {
@@ -39,8 +47,8 @@ namespace PKHeX.Core
             if (entry.IsEmpty)
                 return;
 
-            int index = Array.FindIndex(Entries.ToArray(), ent => ent.Species == entry.Species);
-            if (index > 0)
+            int index = Entries.FindIndex(ent => ent.Species == entry.Species);
+            if (index >= 0)
                 Entries[index] = entry;
             else
                 Entries.Add(entry);
@@ -50,15 +58,13 @@ namespace PKHeX.Core
         public int Count => Entries.Count;
     }
 
-    public class ShadowInfoEntryXD
+    public sealed class ShadowInfoEntryXD
     {
-        public byte[] Data { get; }
+        public readonly byte[] Data;
         internal const int SIZE_ENTRY = 72;
 
-        public ShadowInfoEntryXD(byte[] data = null)
-        {
-            Data = data ?? new byte[SIZE_ENTRY];
-        }
+        public ShadowInfoEntryXD() => Data = new byte[SIZE_ENTRY];
+        public ShadowInfoEntryXD(byte[] data) => Data = data;
 
         public bool IsSnagged => Data[0] >> 6 != 0;
         public bool IsPurified { get => Data[0] >> 7 == 1; set { Data[0] &= 0x7F; if (value) Data[0] |= 0x80; } }
@@ -70,15 +76,16 @@ namespace PKHeX.Core
         public bool IsEmpty => Species == 0;
     }
 
-    public class ShadowInfoEntryColo
+    public sealed class ShadowInfoEntryColo
     {
-        public byte[] Data { get; }
-        internal const int SIZE_ENTRY = 12;
+        public readonly byte[] Data;
+        private const int SIZE_ENTRY = 12;
 
-        public ShadowInfoEntryColo(byte[] data = null) => Data = data ?? new byte[SIZE_ENTRY];
+        public ShadowInfoEntryColo() => Data = new byte[SIZE_ENTRY];
+        public ShadowInfoEntryColo(byte[] data) => Data = data;
 
         public uint PID { get => BigEndian.ToUInt32(Data, 0x00); set => BigEndian.GetBytes(value).CopyTo(Data, 0x00); }
         public int Met_Location { get => BigEndian.ToUInt16(Data, 0x06); set => BigEndian.GetBytes((ushort)value).CopyTo(Data, 0x06); }
-        public uint _0x08 { get => BigEndian.ToUInt32(Data, 0x08); set => BigEndian.GetBytes(value).CopyTo(Data, 0x08); }
+        public uint Unk08 { get => BigEndian.ToUInt32(Data, 0x08); set => BigEndian.GetBytes(value).CopyTo(Data, 0x08); }
     }
 }

@@ -3,22 +3,24 @@
 namespace PKHeX.Core
 {
     /// <summary> Generation 2 <see cref="PKM"/> format. </summary>
-    public sealed class PK2 : _K12
+    public sealed class PK2 : GBPKM
     {
         public override PersonalInfo PersonalInfo => PersonalTable.C[Species];
 
         public override bool Valid => Species <= 252;
 
-        public override int SIZE_PARTY => PKX.SIZE_2PARTY;
-        public override int SIZE_STORED => PKX.SIZE_2STORED;
+        public override int SIZE_PARTY => PokeCrypto.SIZE_2PARTY;
+        public override int SIZE_STORED => PokeCrypto.SIZE_2STORED;
         public override bool Korean => !Japanese && otname[0] <= 0xB;
 
         public override int Format => 2;
 
-        public PK2(byte[] decryptedData = null, string ident = null, bool jp = false) : base(decryptedData, ident, jp) { }
+        public PK2(bool jp = false) : base(new byte[PokeCrypto.SIZE_2PARTY], jp) { }
+        public PK2(byte[] decryptedData, bool jp = false) : base(decryptedData, jp) { }
 
-        public override PKM Clone() => new PK2((byte[])Data.Clone(), Identifier, Japanese)
+        public override PKM Clone() => new PK2((byte[])Data.Clone(), Japanese)
         {
+            Identifier = Identifier,
             otname = (byte[])otname.Clone(),
             nick = (byte[])nick.Clone(),
             IsEgg = IsEgg,
@@ -72,7 +74,7 @@ namespace PKHeX.Core
         #endregion
 
         #region Party Attributes
-        public int Status_Condition { get => Data[0x20]; set => Data[0x20] = (byte)value; }
+        public override int Status_Condition { get => Data[0x20]; set => Data[0x20] = (byte)value; }
 
         public override int Stat_HPCurrent { get => BigEndian.ToUInt16(Data, 0x22); set => BigEndian.GetBytes((ushort)value).CopyTo(Data, 0x22); }
         public override int Stat_HPMax { get => BigEndian.ToUInt16(Data, 0x24); set => BigEndian.GetBytes((ushort)value).CopyTo(Data, 0x24); }
@@ -86,7 +88,7 @@ namespace PKHeX.Core
         public override bool IsEgg { get; set; }
 
         public override bool HasOriginalMetLocation => CaughtData != 0;
-        public override int Version { get => HasOriginalMetLocation ? (int)GameVersion.C : (int)GameVersion.GSC; set { } }
+        public override int Version { get => (int)GameVersion.GSC; set { } }
 
         // Maximums
         public override int MaxMoveID => Legal.MaxMoveID_2;
@@ -96,7 +98,7 @@ namespace PKHeX.Core
 
         public PK1 ConvertToPK1()
         {
-            PK1 pk1 = new PK1(null, Identifier) {TradebackStatus = TradebackType.WasTradeback};
+            PK1 pk1 = new PK1(Japanese) {TradebackStatus = TradebackType.WasTradeback};
             Array.Copy(Data, 0x1, pk1.Data, 0x7, 0x1A);
             pk1.Species = Species; // This will take care of Typing :)
 
@@ -134,7 +136,7 @@ namespace PKHeX.Core
                 PID = Util.Rand32(),
                 Ball = 4,
                 MetDate = DateTime.Now,
-                Version = CaughtData != 0 ? (int)GameVersion.C : (int)GameVersion.SV,
+                Version = HasOriginalMetLocation ? (int)GameVersion.C : (int)GameVersion.SV,
                 Move1 = Move1,
                 Move2 = Move2,
                 Move3 = Move3,
@@ -143,27 +145,21 @@ namespace PKHeX.Core
                 Move2_PPUps = Move2_PPUps,
                 Move3_PPUps = Move3_PPUps,
                 Move4_PPUps = Move4_PPUps,
-                Move1_PP = Move1_PP,
-                Move2_PP = Move2_PP,
-                Move3_PP = Move3_PP,
-                Move4_PP = Move4_PP,
                 Met_Location = Legal.Transfer2, // "Johto region", hardcoded.
                 Gender = Gender,
                 IsNicknamed = false,
                 AltForm = AltForm,
 
-                Country = PKMConverter.Country,
-                Region = PKMConverter.Region,
-                ConsoleRegion = PKMConverter.ConsoleRegion,
                 CurrentHandler = 1,
                 HT_Name = PKMConverter.OT_Name,
                 HT_Gender = PKMConverter.OT_Gender,
-                Geo1_Country = PKMConverter.Country,
-                Geo1_Region = PKMConverter.Region
             };
-            pk7.Language = GuessedLanguage(PKMConverter.Language);
-            pk7.Nickname = PKX.GetSpeciesNameGeneration(pk7.Species, pk7.Language, pk7.Format);
-            if (otname[0] == StringConverter.G1TradeOTCode) // Ingame Trade
+            PKMConverter.SetConsoleRegionData3DS(pk7);
+            PKMConverter.SetFirstCountryRegion(pk7);
+            pk7.HealPP();
+            pk7.Language = TransferLanguage(PKMConverter.Language);
+            pk7.Nickname = SpeciesName.GetSpeciesNameGeneration(pk7.Species, pk7.Language, pk7.Format);
+            if (otname[0] == StringConverter12.G1TradeOTCode) // Ingame Trade
                 pk7.OT_Name = Encounters1.TradeOTG1[pk7.Language];
             pk7.OT_Friendship = pk7.HT_Friendship = PersonalTable.SM[Species].BaseFriendship;
 
@@ -171,8 +167,11 @@ namespace PKHeX.Core
             var special = Species == 151 || Species == 251;
             var new_ivs = new int[6];
             int flawless = special ? 5 : 3;
-            for (var i = 0; i < new_ivs.Length; i++) new_ivs[i] = Util.Rand.Next(pk7.MaxIV + 1);
-            for (var i = 0; i < flawless; i++) new_ivs[i] = 31;
+            var rnd = Util.Rand;
+            for (var i = 0; i < new_ivs.Length; i++)
+                new_ivs[i] = rnd.Next(pk7.MaxIV + 1);
+            for (var i = 0; i < flawless; i++)
+                new_ivs[i] = 31;
             Util.Shuffle(new_ivs);
             pk7.IVs = new_ivs;
 
@@ -192,10 +191,10 @@ namespace PKHeX.Core
             {
                 pk7.IsNicknamed = true;
                 pk7.Nickname = Korean ? Nickname
-                    : StringConverter.GetG1ConvertedString(nick, Japanese);
+                    : StringConverter12.GetG1ConvertedString(nick, Japanese);
             }
             pk7.OT_Name = Korean ? OT_Name
-                : StringConverter.GetG1ConvertedString(otname, Japanese);
+                : StringConverter12.GetG1ConvertedString(otname, Japanese);
             pk7.OT_Gender = OT_Gender; // Crystal
 
             pk7.TradeMemory(Bank: true); // oh no, memories on gen7 pkm

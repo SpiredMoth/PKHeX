@@ -1,6 +1,8 @@
-﻿using FluentAssertions;
+﻿using System;
+using FluentAssertions;
 using PKHeX.Core;
 using System.IO;
+using System.Linq;
 using Xunit;
 
 namespace PKHeX.Tests.Legality
@@ -25,10 +27,7 @@ namespace PKHeX.Tests.Legality
         [Fact]
         public void TestFilesPassOrFailLegalityChecks()
         {
-            var folder = Directory.GetCurrentDirectory();
-            while (!folder.EndsWith(nameof(Tests)))
-                folder = Directory.GetParent(folder).FullName;
-
+            var folder = TestUtil.GetRepoPath();
             folder = Path.Combine(folder, "Legality");
             ParseSettings.AllowGBCartEra = true;
             VerifyAll(folder, "Legal", true);
@@ -41,6 +40,7 @@ namespace PKHeX.Tests.Legality
             var path = Path.Combine(folder, name);
             Directory.Exists(path).Should().BeTrue($"the specified test directory at '{path}' should exist");
             var files = Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories);
+            var ctr = 0;
             foreach (var file in files)
             {
                 var fi = new FileInfo(file);
@@ -48,17 +48,35 @@ namespace PKHeX.Tests.Legality
                 PKX.IsPKM(fi.Length).Should().BeTrue($"the test file '{file}' should have a valid file length");
 
                 var data = File.ReadAllBytes(file);
-                var format = PKX.GetPKMFormatFromExtension(file[file.Length - 1], -1);
-                if (format > 10)
-                    format = 6;
-                var pkm = PKMConverter.GetPKMfromBytes(data, prefer: format);
-                pkm.Should().NotBe($"the PKM '{new FileInfo(file).Name}' should have been loaded");
+                var format = PKX.GetPKMFormatFromExtension(file[^1], -1);
+                format.Should().BeLessOrEqualTo(PKX.Generation, "filename is expected to have a valid extension");
 
                 ParseSettings.AllowGBCartEra = fi.DirectoryName.Contains("GBCartEra");
                 ParseSettings.AllowGen1Tradeback = fi.DirectoryName.Contains("1 Tradeback");
+                var pkm = PKMConverter.GetPKMfromBytes(data, prefer: format);
+                pkm.Should().NotBeNull($"the PKM '{new FileInfo(file).Name}' should have been loaded");
+                if (pkm == null)
+                    continue;
                 var legality = new LegalityAnalysis(pkm);
-                legality.Valid.Should().Be(isValid, $"because the file '{fi.Directory.Name}\\{fi.Name}' should be {(isValid ? "Valid" : "Invalid")}");
+                if (legality.Valid == isValid)
+                {
+                    ctr++;
+                    continue;
+                }
+
+                var fn = Path.Combine(fi.Directory.Name, fi.Name);
+                if (isValid)
+                {
+                    var invalid = legality.Results.Where(z => !z.Valid);
+                    var msg = string.Join(Environment.NewLine, invalid.Select(z => z.Comment));
+                    legality.Valid.Should().BeTrue($"because the file '{fn}' should be Valid, but found:{Environment.NewLine}{msg}");
+                }
+                else
+                {
+                    legality.Valid.Should().BeFalse($"because the file '{fn}' should be invalid, but found Valid.");
+                }
             }
+            ctr.Should().BeGreaterThan(0);
         }
     }
 }

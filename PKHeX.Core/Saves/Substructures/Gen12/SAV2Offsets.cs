@@ -1,4 +1,6 @@
-﻿namespace PKHeX.Core
+﻿using System;
+
+namespace PKHeX.Core
 {
     internal class SAV2Offsets
     {
@@ -14,7 +16,10 @@
             else
                 LoadOffsetsInternational(sav.Version);
             Daycare = PokedexSeen + 0x1F + 28 + 1; // right after first unown seen
+            EventConst = EventFlag - 0x100;
         }
+
+        public int RTCFlags { get; private set; } = -1;
 
         public int Options { get; }
         public int Trainer1 { get; }
@@ -34,7 +39,8 @@
         public int Gender { get; private set; } = -1;
         public int AccumulatedChecksumEnd { get; private set; } = -1;
         public int OverallChecksumPosition { get; private set; } = -1;
-        public int EventFlag { get; private set; } = int.MinValue;
+        public int EventFlag { get; private set; } = -1;
+        public int EventConst { get; }
         public int Daycare { get; }
 
         public int PouchTMHM { get; private set; } = -1;
@@ -45,6 +51,8 @@
 
         private void LoadOffsetsInternational(GameVersion Version)
         {
+            RTCFlags = 0x0C60;
+
             DaylightSavings = 0x2042;
             OtherCurrentBox = 0x284C;
             switch (Version)
@@ -70,6 +78,8 @@
                     PouchKey  = 0x2449;
                     PouchBall = 0x2464;
                     PouchPC   = 0x247E;
+
+                    EventFlag = CurrentBoxIndex - 0x105;
                     break;
                 case GameVersion.C:
                     TimePlayed = 0x2052;
@@ -93,8 +103,11 @@
                     PouchBall = 0x2465;
                     PouchPC   = 0x247F;
 
-                    EventFlag = 0x2600;
+                    EventFlag = CurrentBoxIndex - 0x100;
                     break;
+
+                default:
+                    throw new ArgumentException(nameof(Version));
             }
         }
 
@@ -109,6 +122,8 @@
             switch (Version)
             {
                 case GameVersion.GS:
+                    RTCFlags = 0x1000;
+
                     Money = 0x23BC;
                     JohtoBadges = 0x23C5;
                     CurrentBoxIndex = 0x2705;
@@ -126,8 +141,12 @@
                     PouchKey  = 0x242A;
                     PouchBall = 0x2445;
                     PouchPC   = 0x245F;
+
+                    EventFlag = CurrentBoxIndex - 0x105;
                     break;
                 case GameVersion.C:
+                    RTCFlags = 0x0C80;
+
                     Money = 0x23BE;
                     JohtoBadges = 0x23C7;
                     CurrentBoxIndex = 0x26E2;
@@ -146,8 +165,11 @@
                     PouchBall = 0x2447;
                     PouchPC   = 0x2461;
 
-                    EventFlag = 0x1800;
+                    EventFlag = CurrentBoxIndex - 0x100;
                     break;
+
+                default:
+                    throw new ArgumentException(nameof(Version));
             }
         }
 
@@ -155,6 +177,8 @@
 
         private void LoadOffsetsKorean()
         {
+            RTCFlags = 0x1060;
+
             // No Crystal Version
             DaylightSavings = 0x2042;
             OtherCurrentBox = 0x284C;
@@ -179,6 +203,8 @@
             PouchKey = 0x2441;
             PouchBall = 0x245C;
             PouchPC = 0x2476;
+
+            EventFlag = CurrentBoxIndex - 0x105;
         }
     }
 }

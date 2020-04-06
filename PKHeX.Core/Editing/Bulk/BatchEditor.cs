@@ -6,7 +6,10 @@ using static PKHeX.Core.MessageStrings;
 
 namespace PKHeX.Core
 {
-    public class BatchEditor
+    /// <summary>
+    /// Carries out a batch edit and contains information summarizing the results.
+    /// </summary>
+    public sealed class BatchEditor
     {
         private int Modified { get; set; }
         private int Iterated { get; set; }
@@ -31,12 +34,12 @@ namespace PKHeX.Core
                 return false;
             }
 
-            var r = BatchEditing.TryModifyPKM(pkm, filters, modifications);
-            if (r != ModifyResult.Invalid)
+            var result = BatchEditing.TryModifyPKM(pkm, filters, modifications);
+            if (result != ModifyResult.Invalid)
                 Iterated++;
-            if (r == ModifyResult.Error)
+            if (result == ModifyResult.Error)
                 Errored++;
-            if (r != ModifyResult.Modified)
+            if (result != ModifyResult.Modified)
                 return false;
 
             pkm.RefreshChecksum();

@@ -7,7 +7,6 @@ using static PKHeX.Core.MysteryGiftGenerator;
 using static PKHeX.Core.EncounterTradeGenerator;
 using static PKHeX.Core.EncounterSlotGenerator;
 using static PKHeX.Core.EncounterStaticGenerator;
-using static PKHeX.Core.EncounterLinkGenerator;
 using static PKHeX.Core.EncounterEggGenerator;
 
 namespace PKHeX.Core
@@ -35,20 +34,20 @@ namespace PKHeX.Core
                 case 2: return GetEncounters12(pkm, info);
                 case 3: return GetEncounters3(pkm, info);
                 case 4: return GetEncounters4(pkm, info);
+                case 8: return GenerateRawEncounters8(pkm);
                 default: return GenerateRawEncounters(pkm);
             }
         }
 
         private static IEnumerable<IEncounterable> GetEncounters12(PKM pkm, LegalInfo info)
         {
-            int baseSpecies = GetBaseSpecies(pkm);
+            int baseSpecies = GetBaseSpecies(pkm).Species;
 
             if ((pkm.Format == 1 && baseSpecies > MaxSpeciesID_1) || baseSpecies > MaxSpeciesID_2)
                 yield break;
 
             foreach (var z in GenerateFilteredEncounters12(pkm))
             {
-                pkm.WasEgg = z.EggEncounter;
                 info.Generation = z is IGeneration g ? g.Generation : 2;
                 info.Game = ((IVersion)z).Version;
                 yield return z;
@@ -61,17 +60,38 @@ namespace PKHeX.Core
             var deferred = new List<IEncounterable>();
             foreach (var z in GenerateRawEncounters3(pkm, info))
             {
-                if (pkm.Version == 15)
+                if (pkm.Version == (int)GameVersion.CXD) // C/XD
                 {
                     if (z is EncounterSlot w)
                     {
                         var seeds = MethodFinder.GetPokeSpotSeeds(pkm, w.SlotNumber).FirstOrDefault();
                         info.PIDIV = seeds ?? info.PIDIV;
                     }
-                    else if (z is EncounterStaticShadow s && !LockFinder.IsAllShadowLockValid(s, info.PIDIV, pkm))
+                    else if (z is EncounterStaticShadow s)
                     {
-                        deferred.Add(s);
-                        continue;
+                        bool valid = false;
+                        if (s.IVs.Count == 0) // not ereader
+                        {
+                            valid = LockFinder.IsAllShadowLockValid(s, info.PIDIV, pkm);
+                        }
+                        else
+                        {
+                            var possible = MethodFinder.GetColoEReaderMatches(pkm.EncryptionConstant);
+                            foreach (var poss in possible)
+                            {
+                                if (!LockFinder.IsAllShadowLockValid(s, poss, pkm))
+                                    continue;
+                                valid = true;
+                                info.PIDIV = poss;
+                                break;
+                            }
+                        }
+
+                        if (!valid)
+                        {
+                            deferred.Add(s);
+                            continue;
+                        }
                     }
                 }
                 if (info.PIDIV.Type.IsCompatible3(z, pkm))
@@ -127,7 +147,8 @@ namespace PKHeX.Core
             var deferred = new List<IEncounterable>();
             foreach (var t in GetValidEncounterTrades(pkm, vs, game))
             {
-                if (pkm.Format >= 7 && (t.Generation == 2 || t.GetOT(pkm.Language) != pkm.OT_Name)) // ot length collision
+                // some OTs are longer than the keyboard entry; don't defer these
+                if (pkm.Format >= 7 && pkm.OT_Name.Length <= (pkm.Japanese || pkm.Korean ? 5 : 7))
                 {
                     deferred.Add(t);
                     continue;
@@ -158,10 +179,6 @@ namespace PKHeX.Core
                 }
                 yield return s;
             }
-            // clear egg flag
-            // necessary for static egg gifts which appear in wild, level 8 GS clefairy
-            // GetValidWildEncounters immediately returns empty otherwise
-            pkm.WasEgg = false;
             foreach (var e in GetValidWildEncounters12(pkm, vs, game))
             {
                 yield return e;
@@ -169,27 +186,34 @@ namespace PKHeX.Core
 
             if (gsc)
             {
-                bool WasEgg = !pkm.Gen1_NotTradeback && GetWasEgg23(pkm) && !NoHatchFromEgg.Contains(pkm.Species);
-                if (WasEgg)
+                var canBeEgg = GetCanBeEgg(pkm);
+                if (canBeEgg)
                 {
-                    // Further Filtering
-                    if (pkm.Format < 3)
-                    {
-                        WasEgg &= pkm.Met_Location == 0 || pkm.Met_Level == 1; // 2->1->2 clears met info
-                        WasEgg &= pkm.CurrentLevel >= 5;
-                    }
-                }
-                if (WasEgg)
-                {
-                    int eggspec = GetBaseEggSpecies(pkm);
+                    int eggspec = GetBaseEggSpecies(pkm).Species;
                     if (ParseSettings.AllowGen2Crystal(pkm))
-                        yield return new EncounterEgg { Species = eggspec, Version = GameVersion.C, Level = 5 }; // gen2 egg
-                    yield return new EncounterEgg { Species = eggspec, Version = GameVersion.GS, Level = 5 }; // gen2 egg
+                        yield return new EncounterEgg(eggspec, 0, 5) { Version = GameVersion.C }; // gen2 egg
+                    yield return new EncounterEgg(eggspec, 0, 5) { Version = GameVersion.GS }; // gen2 egg
                 }
             }
 
             foreach (var d in deferred)
                 yield return d;
+        }
+
+        private static bool GetCanBeEgg(PKM pkm)
+        {
+            bool canBeEgg = !pkm.Gen1_NotTradeback && GetCanBeEgg23(pkm) && !NoHatchFromEgg.Contains(pkm.Species);
+            if (!canBeEgg)
+                return false;
+
+            // Further Filtering
+            if (pkm.Format < 3)
+            {
+                canBeEgg &= pkm.Met_Location == 0 || pkm.Met_Level == 1; // 2->1->2 clears met info
+                canBeEgg &= pkm.CurrentLevel >= 5;
+            }
+
+            return canBeEgg;
         }
 
         private static IEnumerable<IEncounterable> GenerateFilteredEncounters12(PKM pkm)
@@ -202,8 +226,8 @@ namespace PKHeX.Core
             // iterate over both games, consuming from one list at a time until the other list has higher priority encounters
             var get1 = GenerateRawEncounters1(pkm, crystal);
             var get2 = GenerateRawEncounters2(pkm, crystal);
-            var g1i = new PeekEnumerator<IEncounterable>(get1);
-            var g2i = new PeekEnumerator<IEncounterable>(get2);
+            using var g1i = new PeekEnumerator<IEncounterable>(get1);
+            using var g2i = new PeekEnumerator<IEncounterable>(get2);
 
             var deferred = new List<IEncounterable>();
             while (g2i.PeekIsNext() || g1i.PeekIsNext())
@@ -257,7 +281,7 @@ namespace PKHeX.Core
                 case EncounterTrade t:
                     return t.Generation == 2 ? GBEncounterPriority.TradeEncounterG2 : GBEncounterPriority.TradeEncounterG1;
                 case EncounterStatic s:
-                    if (s.Moves != null && s.Moves[0] != 0 && pkm.Moves.Contains(s.Moves[0]))
+                    if (s.Moves.Count != 0 && s.Moves[0] != 0 && pkm.Moves.Contains(s.Moves[0]))
                         return GBEncounterPriority.SpecialEncounter;
                     return GBEncounterPriority.StaticEncounter;
                 case EncounterSlot _:
@@ -284,12 +308,43 @@ namespace PKHeX.Core
         private static IEnumerable<IEncounterable> GenerateRawEncounters(PKM pkm)
         {
             int ctr = 0;
-            if (pkm.WasLink)
+
+            if (pkm.WasEvent || pkm.WasEventEgg || pkm.WasLink)
             {
-                foreach (var z in GetValidLinkGifts(pkm))
+                foreach (var z in GetValidGifts(pkm))
                 { yield return z; ++ctr; }
                 if (ctr != 0) yield break;
             }
+
+            if (pkm.WasBredEgg)
+            {
+                foreach (var z in GenerateEggs(pkm))
+                { yield return z; ++ctr; }
+                if (ctr == 0) yield break;
+            }
+
+            foreach (var z in GetValidStaticEncounter(pkm))
+            { yield return z; ++ctr; }
+            if (ctr != 0) yield break;
+
+            if (EncounterArea6XY.WasFriendSafari(pkm))
+            {
+                foreach (var z in EncounterArea6XY.GetValidFriendSafari(pkm))
+                { yield return z; ++ctr; }
+                if (ctr != 0) yield break;
+            }
+
+            foreach (var z in GetValidWildEncounters(pkm))
+            { yield return z; ++ctr; }
+            if (ctr != 0) yield break;
+            foreach (var z in GetValidEncounterTrades(pkm))
+            { yield return z; ++ctr; }
+        }
+
+        private static IEnumerable<IEncounterable> GenerateRawEncounters8(PKM pkm)
+        {
+            // Static Encounters can collide with wild encounters (close match); don't break if a Static Encounter is yielded.
+            int ctr = 0;
 
             if (pkm.WasEvent || pkm.WasEventEgg)
             {
@@ -307,16 +362,13 @@ namespace PKHeX.Core
 
             foreach (var z in GetValidStaticEncounter(pkm))
             { yield return z; ++ctr; }
-            if (ctr != 0) yield break;
-            foreach (var z in GetValidFriendSafari(pkm))
-            { yield return z; ++ctr; }
-            if (ctr != 0) yield break;
+            // if (ctr != 0) yield break;
             foreach (var z in GetValidWildEncounters(pkm))
             { yield return z; ++ctr; }
+
             if (ctr != 0) yield break;
             foreach (var z in GetValidEncounterTrades(pkm))
             { yield return z; ++ctr; }
-            // if (ctr != 0) yield break;
         }
 
         private static IEnumerable<IEncounterable> GenerateRawEncounters4(PKM pkm, LegalInfo info)
@@ -416,7 +468,6 @@ namespace PKHeX.Core
             int species = pkm.Species;
             var deferNoFrame = new Queue<IEncounterable>();
             var deferFrame = new Queue<IEncounterable>();
-            pkm.WasEgg = false; // clear flag if set from static
             var slots = FrameFinder.GetFrames(info.PIDIV, pkm).ToList();
             foreach (var z in GetValidWildEncounters34(pkm))
             {
@@ -463,22 +514,19 @@ namespace PKHeX.Core
         // Utility
         private static bool IsEncounterTypeMatch(IEncounterable e, int type)
         {
-            switch (e)
+            return e switch
             {
-                case EncounterStaticTyped t:
-                    return t.TypeEncounter.Contains(type);
-                case EncounterSlot w:
-                    return w.TypeEncounter.Contains(type);
-                default:
-                    return type == 0;
-            }
+                EncounterStaticTyped t => t.TypeEncounter.Contains(type),
+                EncounterSlot w => w.TypeEncounter.Contains(type),
+                _ => (type == 0)
+            };
         }
 
         internal static bool IsEncounterTrade1Valid(PKM pkm, EncounterTrade t)
         {
             string ot = pkm.OT_Name;
             if (pkm.Format <= 2)
-                return ot == StringConverter.G1TradeOTStr;
+                return ot == StringConverter12.G1TradeOTStr;
             // Converted string 1/2->7 to language specific value
             var tr = t.GetOT(pkm.Language);
             return ot == tr;

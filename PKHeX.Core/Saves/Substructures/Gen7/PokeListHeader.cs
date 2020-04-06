@@ -16,8 +16,6 @@ namespace PKHeX.Core
     /// </remarks>
     public sealed class PokeListHeader : SaveBlock
     {
-        private readonly SaveFile SAV;
-
         /// <summary>
         /// Raw representation of data, casted to ushort[].
         /// </summary>
@@ -28,11 +26,15 @@ namespace PKHeX.Core
         private const int MAX_SLOTS = 1000;
         private const int SLOT_EMPTY = 1001;
 
-        public PokeListHeader(SaveFile sav) : base(sav)
+        public PokeListHeader(SAV7b sav, int offset) : base(sav)
         {
-            SAV = sav;
-            Offset = ((SAV7b)sav).GetBlockOffset(BelugaBlockIndex.PokeListHeader);
+            Offset = offset;
             PokeListInfo = LoadPointerData();
+            if (!sav.Exportable)
+            {
+                for (int i = 0; i < COUNT; i++)
+                    PokeListInfo[i] = SLOT_EMPTY;
+            }
             PartyCount = PokeListInfo.Take(6).Count(z => z < MAX_SLOTS);
         }
 

@@ -16,11 +16,6 @@
         bool Unicode { get; }
 
         /// <summary>
-        /// Indicates if the Viewer's controls have been fully initialized after a reload.
-        /// </summary>
-        bool FieldsInitialized { get; }
-
-        /// <summary>
         /// Indicates if the Viewer is providing extra flexibility or not.
         /// </summary>
         bool HaX { get; }
@@ -36,6 +31,11 @@
         /// <param name="click">Cause the viewer to do extra actions to force validation of its children.</param>
         /// <returns>Prepared <see cref="PKM"/> data from the viewer.</returns>
         PKM PreparePKM(bool click = true);
+
+        /// <summary>
+        /// Indicates if the currently loaded <see cref="PKM"/> data is ready for exporting.
+        /// </summary>
+        bool EditsComplete { get; }
 
         /// <summary>
         /// Loads a given <see cref="PKM"/> data to the viewer.

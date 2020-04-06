@@ -2,7 +2,7 @@
 {
     public static class ParseSettings
     {
-        internal static ITrainerInfo ActiveTrainer = new SimpleTrainerInfo { OT = string.Empty, Game = (int)GameVersion.Any, Language = -1 };
+        internal static ITrainerInfo ActiveTrainer { get; set; } = new SimpleTrainerInfo(GameVersion.Any) { OT = string.Empty, Language = -1 };
 
         /// <summary>
         /// Toggles whether or not the word filter should be used when checking the data.
@@ -22,6 +22,8 @@
         public static Severity NicknamedTrade { get; set; } = Severity.Invalid;
         public static Severity NicknamedMysteryGift { get; set; } = Severity.Fishy;
         public static Severity RNGFrameNotFound { get; set; } = Severity.Fishy;
+        public static Severity Gen8MemoryLocationTextVariable { get; set; } = Severity.Fishy;
+        public static Severity Gen8TransferTrackerNotPresent { get; set; } = Severity.Fishy;
 
         /// <summary>
         /// Checks to see if Crystal is available to visit/originate from.
@@ -48,14 +50,17 @@
 
         internal static bool IsFromActiveTrainer(PKM pkm) => ActiveTrainer.IsFromTrainer(pkm);
 
+        /// <summary>
+        /// Initializes certain settings
+        /// </summary>
+        /// <param name="sav">Newly loaded save file</param>
+        /// <returns>Save file is Physical GB cartridge save file (not Virtual Console)</returns>
         public static bool InitFromSaveFileData(SaveFile sav)
         {
             ActiveTrainer = sav;
-            AllowGen1Tradeback = true;
             if (sav.Generation >= 3)
                 return AllowGBCartEra = false;
-            string path = sav.FileName;
-            bool vc = path.EndsWith("dat");
+            bool vc = !sav.Exportable || (sav.FileName?.EndsWith("dat") ?? false); // default to true for non-exportable
             return AllowGBCartEra = !vc; // physical cart selected
         }
     }

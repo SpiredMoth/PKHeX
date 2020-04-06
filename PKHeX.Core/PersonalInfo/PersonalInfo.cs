@@ -10,7 +10,9 @@ namespace PKHeX.Core
         /// <summary>
         /// Raw Data
         /// </summary>
-        protected byte[] Data;
+        protected readonly byte[] Data;
+
+        protected PersonalInfo(byte[] data) => Data = data;
 
         /// <summary>
         /// Writes entry to raw bytes.
@@ -203,7 +205,7 @@ namespace PKHeX.Core
             get => new[] { Type1, Type2 };
             set
             {
-                if (value?.Length != 2) return;
+                if (value.Length != 2) return;
                 Type1 = value[0];
                 Type2 = value[1];
             }
@@ -217,7 +219,7 @@ namespace PKHeX.Core
             get => new[] { EggGroup1, EggGroup2 };
             set
             {
-                if (value?.Length != 2) return;
+                if (value.Length != 2) return;
                 EggGroup1 = (byte)value[0];
                 EggGroup2 = (byte)value[1];
             }
@@ -226,12 +228,12 @@ namespace PKHeX.Core
         /// <summary>
         /// TM/HM learn compatibility flags for individual moves.
         /// </summary>
-        public bool[] TMHM { get; protected set; }
+        public bool[] TMHM { get; protected set; } = Array.Empty<bool>();
 
         /// <summary>
         /// Grass-Fire-Water-Etc typed learn compatibility flags for individual moves.
         /// </summary>
-        public bool[] TypeTutors { get; protected set; }
+        public bool[] TypeTutors { get; protected set; } = Array.Empty<bool>();
 
         /// <summary>
         /// Special tutor learn compatibility flags for individual moves.
@@ -242,10 +244,10 @@ namespace PKHeX.Core
         {
             if (length < 0)
                 length = data.Length;
-            bool[] r = new bool[length << 3];
-            for (int i = 0; i < r.Length; i++)
-                r[i] = (data[start + (i >> 3)] >> (i & 7) & 0x1) == 1;
-            return r;
+            bool[] result = new bool[length << 3];
+            for (int i = 0; i < result.Length; i++)
+                result[i] = (data[start + (i >> 3)] >> (i & 7) & 0x1) == 1;
+            return result;
         }
 
         protected static byte[] SetBits(bool[] bits)
@@ -293,7 +295,15 @@ namespace PKHeX.Core
         /// <summary>
         /// Gets a random valid gender for the entry.
         /// </summary>
-        public int RandomGender
+        public int RandomGender()
+        {
+            var fix = FixedGender;
+            return fix >= 0 ? fix : Util.Rand.Next(2);
+        }
+
+        public bool IsDualGender => FixedGender < 0;
+
+        public int FixedGender
         {
             get
             {
@@ -303,7 +313,7 @@ namespace PKHeX.Core
                     return 1;
                 if (OnlyMale)
                     return 0;
-                return Util.Rand.Next(2);
+                return -1;
             }
         }
 

@@ -15,7 +15,9 @@ namespace PKHeX.WinForms
         }
 
         private static readonly string[] Languages = {"ja", "fr", "it", "de", "es", "ko", "zh"};
-        private const string DefaultLanguage = "en";
+        private const string DefaultLanguage = GameLanguage.DefaultLanguage;
+
+        public static bool IsUpdatingTranslations { get; private set; }
 
         /// <summary>
         /// Call this to update all translatable resources (Program Messages, Legality Text, Program GUI)
@@ -24,9 +26,11 @@ namespace PKHeX.WinForms
         {
             if (DialogResult.Yes != WinFormsUtil.Prompt(MessageBoxButtons.YesNo, "Update translation files with current values?"))
                 return;
+            IsUpdatingTranslations = true;
             DumpStringsLegality();
             DumpStringsMessage();
             UpdateTranslations();
+            IsUpdatingTranslations = false;
         }
 
         private static ToolStripMenuItem GetTranslationUpdater()
@@ -52,7 +56,7 @@ namespace PKHeX.WinForms
 
             // Move translated files from the debug exe loc to their project location
             var files = Directory.GetFiles(Application.StartupPath);
-            var dir = GetResourcePath();
+            var dir = GetResourcePath().Replace("PKHeX.Core", "PKHeX.WinForms");
             foreach (var f in files)
             {
                 var fn = Path.GetFileName(f);
@@ -61,11 +65,12 @@ namespace PKHeX.WinForms
                 if (!fn.StartsWith("lang_"))
                     continue;
 
-                string lang = fn.Substring(5, fn.Length - (5+4));
-                var loc = GetFileLocationInText("lang", dir, lang);
-                if (File.Exists(f))
+                var loc = Path.Combine(dir, fn);
+                if (File.Exists(loc))
                     File.Delete(loc);
                 File.Move(f, loc);
+                // if net framework support is ever removed, use the new overload instead of the stuff above:
+                // File.Move(f, loc, true);
             }
 
             Application.Exit();
@@ -89,6 +94,8 @@ namespace PKHeX.WinForms
             "SAV_HoneyTree.L_Tree0", // dynamic, don't bother
             "SAV_Misc3.BTN_Symbol", // symbols should stay as their current character
             "SettingsEditor.BAKPrompt", // internal setting
+            "SAV_GameSelect.L_Prompt", // prompt text (dynamic)
+            "SAV_BlockDump8.L_BlockName", // Block name (dynamic)
         };
 
         private static readonly string[] PurgeBanlist =

@@ -4,7 +4,7 @@ using static PKHeX.Core.LegalityCheckStrings;
 namespace PKHeX.Core
 {
     /// <summary>
-    /// Verifies the <see cref="PKM.SuperTrainingMedalCount"/> and associated values.
+    /// Verifies the <see cref="ISuperTrain.SuperTrainingMedalCount"/> and associated values.
     /// </summary>
     public sealed class MedalVerifier : Verifier
     {
@@ -19,55 +19,58 @@ namespace PKHeX.Core
         private void VerifyMedalsRegular(LegalityAnalysis data)
         {
             var pkm = data.pkm;
+            var train = (ISuperTrain)pkm;
             var Info = data.Info;
-            uint value = BitConverter.ToUInt32(pkm.Data, 0x2C);
+            uint value = BitConverter.ToUInt32(data.pkm.Data, 0x2C);
             if ((value & 3) != 0) // 2 unused flags
                 data.AddLine(GetInvalid(LSuperUnused));
-            int TrainCount = pkm.SuperTrainingMedalCount();
+            int TrainCount = train.SuperTrainingMedalCount();
 
-            if (pkm.IsEgg && TrainCount > 0)
+            if (pkm.IsEgg)
             {
-                data.AddLine(GetInvalid(LSuperEgg));
-                return;
-            }
-            if (TrainCount > 0 && Info.Generation > 6)
-            {
-                data.AddLine(GetInvalid(LSuperUnavailable));
-                return;
-            }
-            if (pkm.Format >= 7)
-            {
-                if (pkm.SecretSuperTrainingUnlocked)
+                // Can't have any super training data as an egg.
+                if (TrainCount > 0)
+                    data.AddLine(GetInvalid(LSuperEgg));
+                if (train.SecretSuperTrainingUnlocked)
                     data.AddLine(GetInvalid(LSuperNoUnlocked));
-                if (pkm.SecretSuperTrainingComplete)
+                if (train.SecretSuperTrainingComplete)
                     data.AddLine(GetInvalid(LSuperNoComplete));
                 return;
             }
-            if (TrainCount == 30 ^ pkm.SecretSuperTrainingComplete)
+
+            if (Info.Generation >= 7 || Info.Generation <= 2)
+            {
+                // Can't have any super training data if it never visited Gen6.
+                if (TrainCount > 0)
+                    data.AddLine(GetInvalid(LSuperUnavailable));
+                if (train.SecretSuperTrainingUnlocked)
+                    data.AddLine(GetInvalid(LSuperNoUnlocked));
+                if (train.SecretSuperTrainingComplete)
+                    data.AddLine(GetInvalid(LSuperNoComplete));
+                return;
+            }
+
+            if (pkm.Format >= 7)
+            {
+                // Gen6->Gen7 transfer wipes the two Secret flags.
+                if (train.SecretSuperTrainingUnlocked)
+                    data.AddLine(GetInvalid(LSuperNoUnlocked));
+                if (train.SecretSuperTrainingComplete)
+                    data.AddLine(GetInvalid(LSuperNoComplete));
+                return;
+            }
+
+            // Only reach here if Format==6.
+            if (TrainCount == 30 ^ train.SecretSuperTrainingComplete)
                 data.AddLine(GetInvalid(LSuperComplete));
         }
 
         private void VerifyMedalsEvent(LegalityAnalysis data)
         {
             var pkm = data.pkm;
-            var Info = data.Info;
             byte value = pkm.Data[0x3A];
-            if ((value & 0xC0) != 0) // 2 unused flags highest bits
-                data.AddLine(GetInvalid(LSuperUnused));
-
-            int TrainCount = 0;
-            for (int i = 0; i < 6; i++)
-            {
-                if ((value & 1) != 0)
-                    TrainCount++;
-                value >>= 1;
-            }
-            if (pkm.IsEgg && TrainCount > 0)
-                data.AddLine(GetInvalid(LSuperEgg));
-            else if (TrainCount > 0 && Info.Generation > 6)
-                data.AddLine(GetInvalid(LSuperUnavailable));
-            else if (TrainCount > 0)
-                data.AddLine(Get(LSuperDistro, Severity.Fishy));
+            if (value != 0)
+                data.AddLine(GetInvalid(LSuperDistro));
         }
     }
 }

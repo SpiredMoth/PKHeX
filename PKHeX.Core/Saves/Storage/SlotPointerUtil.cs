@@ -3,6 +3,9 @@ using System.Diagnostics;
 
 namespace PKHeX.Core
 {
+    /// <summary>
+    /// Logic for rearranging pointers for Box Storage utility
+    /// </summary>
     public static class SlotPointerUtil
     {
         private static bool WithinRange(int slot, int min, int max) => min <= slot && slot < max;
@@ -37,7 +40,7 @@ namespace PKHeX.Core
                 for (int i = 0; i < p.Count; i++)
                 {
                     var index = p[i];
-                    if (index >= bd.Count)
+                    if ((uint)index >= bd.Count)
                         continue;
                     var pk = bd[index];
                     var newIndex = result.IndexOf(pk);

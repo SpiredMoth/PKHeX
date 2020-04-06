@@ -76,7 +76,7 @@ namespace PKHeX.Core
         /// <param name="frame">Frame at which the search starts/continues at.</param>
         /// <param name="prior">Prior <see cref="NPCLock"/> data. If this is the last lock in the CPU Team, this is null.</param>
         /// <returns>True if the <see cref="Specifications"/> are valid.</returns>
-        private bool FindLockSeed(int frame = 0, NPCLock prior = null)
+        private bool FindLockSeed(int frame = 0, NPCLock? prior = null)
         {
             if (Locks.Count == 0) // full team reverse-generated
                 return VerifyNPC(frame);
@@ -102,7 +102,7 @@ namespace PKHeX.Core
         /// <param name="current">Current lock criteria to satisfy. Used to find valid <see cref="SeedFrame"/> results to yield.</param>
         /// <param name="prior">Prior lock criteria. Used for determining when the traversal stops.</param>
         /// <returns>List of possible locks for the provided input.</returns>
-        private IEnumerable<SeedFrame> GetPossibleLocks(int ctr, NPCLock current, NPCLock prior)
+        private IEnumerable<SeedFrame> GetPossibleLocks(int ctr, NPCLock current, NPCLock? prior)
         {
             if (prior?.Shadow != false)
                 return GetSingleLock(ctr, current);
@@ -120,7 +120,7 @@ namespace PKHeX.Core
         {
             uint pid = Cache[ctr + 1] << 16 | Cache[ctr];
             if (current.MatchesLock(pid))
-                yield return new SeedFrame { FrameID = ctr + (current.Seen ? 5 : 7), PID = pid };
+                yield return new SeedFrame(pid, ctr + (current.Seen ? 5 : 7));
         }
 
         /// <summary>
@@ -154,7 +154,7 @@ namespace PKHeX.Core
                     var lower = Cache[p7];
                     uint cid = upper << 16 | lower;
                     var sv = (upper ^ lower) >> 3;
-                    if (current.Shadow && sv == TSV) // shiny shadow mon, only ever true for XD.
+                    if (sv == TSV) // XD shiny checks all opponent PKM, even non-shadow.
                     {
                         // This interrupt is ignored! The result is shiny.
                     }
@@ -179,7 +179,7 @@ namespace PKHeX.Core
                 }
                 uint pid = Cache[ctr + 1] << 16 | Cache[ctr];
                 if (current.MatchesLock(pid))
-                    yield return new SeedFrame { FrameID = ctr + (current.Seen ? 5 : 7), PID = pid };
+                    yield return new SeedFrame(pid, ctr + (current.Seen ? 5 : 7));
 
                 ctr += 2;
             }
@@ -204,9 +204,10 @@ namespace PKHeX.Core
                 var pid = member.PID;
                 var psv = ((pid & 0xFFFF) ^ (pid >> 16)) >> 3;
 
-                // check for shiny for Trainer
-                if (psv == TSV && Specifications.Locks[pos].Shadow) // always false for Colo, which doesn't set the TSV field.
-                    return false; // no shiny shadow mons
+                // check for shiny for Trainer -- XD only
+                // if (psv == TSV) // XD shiny checks all opponent PKM, even non-shadow.
+                //    return false; // no shiny shadow mons
+                // we already checked this when re-generating the team
 
                 // check for shiny for CPU
                 if (psv == CPUSV)

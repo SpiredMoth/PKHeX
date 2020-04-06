@@ -4,13 +4,7 @@ namespace PKHeX.Core
 {
     public sealed class Misc7b : SaveBlock
     {
-        private readonly SaveFile SAV;
-
-        public Misc7b(SaveFile sav) : base(sav)
-        {
-            SAV = sav;
-            Offset = ((SAV7b)sav).GetBlockOffset(BelugaBlockIndex.Misc);
-        }
+        public Misc7b(SAV7b sav, int offset) : base(sav) => Offset = offset;
 
         public uint Money
         {

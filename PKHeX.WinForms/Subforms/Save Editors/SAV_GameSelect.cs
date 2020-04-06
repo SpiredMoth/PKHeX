@@ -10,10 +10,11 @@ namespace PKHeX.WinForms
     {
         public GameVersion Result = GameVersion.Invalid;
 
-        public SAV_GameSelect(IEnumerable<ComboItem> items)
+        public SAV_GameSelect(IEnumerable<ComboItem> items, params string[] lines)
         {
             InitializeComponent();
             WinFormsUtil.TranslateInterface(this, Main.CurrentLanguage);
+            L_Prompt.Text = string.Join(Environment.NewLine + Environment.NewLine, lines);
             CB_Game.InitializeBinding();
             CB_Game.DataSource = new BindingSource(items.ToList(), null);
             CB_Game.SelectedIndex = 0;
@@ -31,9 +32,9 @@ namespace PKHeX.WinForms
         private void SAV_GameSelect_KeyDown(object sender, KeyEventArgs e)
         {
             if (e.KeyCode == Keys.Enter)
-                B_OK_Click(null, null);
+                B_OK_Click(null, EventArgs.Empty);
             if (e.KeyCode == Keys.Escape)
-                B_Cancel_Click(null, null);
+                B_Cancel_Click(null, EventArgs.Empty);
         }
     }
 }

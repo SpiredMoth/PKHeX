@@ -5,35 +5,27 @@ using Xunit;
 
 namespace PKHeX.Tests.Saves
 {
-    public class SMTests
+    public static class SMTests
     {
-        private SAV7 GetSave()
+        private static SAV7 GetSave()
         {
-            var folder = GetRepoPath();
+            var folder = TestUtil.GetRepoPath();
             var path = Path.Combine(folder, "TestData", "SM Project 802.main");
-            return new SAV7(File.ReadAllBytes(path));
-        }
-
-        private string GetRepoPath()
-        {
-            var folder = Directory.GetCurrentDirectory();
-            while (!folder.EndsWith(nameof(Tests)))
-                folder = Directory.GetParent(folder).FullName;
-            return folder;
+            return new SAV7SM(File.ReadAllBytes(path));
         }
 
         [Fact]
-        public void ChecksumsValid()
+        public static void ChecksumsValid()
         {
             GetSave().ChecksumsValid.Should().BeTrue();
         }
 
         [Fact]
-        public void ChecksumsUpdate()
+        public static void ChecksumsUpdate()
         {
             var save = GetSave();
             var originalChecksumInfo = save.ChecksumInfo;
-            var newSave = new SAV7(save.Write(false, false));
+            var newSave = new SAV7SM(save.Write());
 
             save.ChecksumInfo.Should().BeEquivalentTo(originalChecksumInfo, "because the checksum should have been modified");
             save.ChecksumsValid.Should().BeTrue("because the checksum should be valid after write");

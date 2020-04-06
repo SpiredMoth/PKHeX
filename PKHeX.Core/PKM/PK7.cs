@@ -1,45 +1,38 @@
 ﻿using System;
-using System.Linq;
+using System.Collections.Generic;
 
 namespace PKHeX.Core
 {
     /// <summary> Generation 7 <see cref="PKM"/> format. </summary>
-    public sealed class PK7 : PKM, IRibbonSetEvent3, IRibbonSetEvent4, IRibbonSetCommon3, IRibbonSetCommon4, IRibbonSetCommon6, IRibbonSetCommon7, IContestStats, IHyperTrain, IGeoTrack
+    public sealed class PK7 : G6PKM, IRibbonSetEvent3, IRibbonSetEvent4, IRibbonSetCommon3, IRibbonSetCommon4, IRibbonSetCommon6, IRibbonSetCommon7, IContestStats, IHyperTrain, IGeoTrack, ISuperTrain, IFormArgument
     {
-        private static readonly byte[] Unused =
+        private static readonly ushort[] Unused =
         {
             0x2A, // Old Marking Value (PelagoEventStatus)
             // 0x36, 0x37, // Unused Ribbons
             0x58, 0x59, 0x73, 0x90, 0x91, 0x9E, 0x9F, 0xA0, 0xA1, 0xA7, 0xAA, 0xAB, 0xAC, 0xAD, 0xC8, 0xC9, 0xD7, 0xE4, 0xE5, 0xE6, 0xE7
         };
 
-        public override byte[] ExtraBytes => Unused;
-
-        public override int SIZE_PARTY => PKX.SIZE_6PARTY;
-        public override int SIZE_STORED => PKX.SIZE_6STORED;
+        public override IReadOnlyList<ushort> ExtraBytes => Unused;
         public override int Format => 7;
         public override PersonalInfo PersonalInfo => PersonalTable.USUM.GetFormeEntry(Species, AltForm);
 
-        public PK7() => Data = new byte[PKX.SIZE_6PARTY];
+        public override byte[] Data { get; }
 
-        public PK7(byte[] decryptedData, string ident = null)
+        public PK7() => Data = new byte[PokeCrypto.SIZE_6PARTY];
+
+        public PK7(byte[] data)
         {
-            Data = decryptedData;
-            PKMConverter.CheckEncrypted(ref Data, Format);
-            Identifier = ident;
-            if (Data.Length != SIZE_PARTY)
-                Array.Resize(ref Data, SIZE_PARTY);
+            PokeCrypto.DecryptIfEncrypted67(ref data);
+            if (data.Length != PokeCrypto.SIZE_6PARTY)
+                Array.Resize(ref data, PokeCrypto.SIZE_6PARTY);
+            Data = data;
         }
 
-        public override PKM Clone() => new PK7((byte[])Data.Clone(), Identifier);
+        public override PKM Clone() => new PK7((byte[])Data.Clone()){Identifier = Identifier};
 
         private string GetString(int Offset, int Count) => StringConverter.GetString7(Data, Offset, Count);
         private byte[] SetString(string value, int maxLength, bool chinese = false) => StringConverter.SetString7(value, maxLength, Language, chinese: chinese);
-
-        // Trash Bytes
-        public override byte[] Nickname_Trash { get => GetData(0x40, 24); set { if (value?.Length == 24) value.CopyTo(Data, 0x40); } }
-        public override byte[] HT_Trash { get => GetData(0x78, 24); set { if (value?.Length == 24) value.CopyTo(Data, 0x78); } }
-        public override byte[] OT_Trash { get => GetData(0xB0, 24); set { if (value?.Length == 24) value.CopyTo(Data, 0xB0); } }
 
         // Structure
         #region Block A
@@ -157,6 +150,7 @@ namespace PKHeX.Core
         public bool SuperTrain7_2 { get => (ST4 & (1 << 5)) == 1 << 5; set => ST4 = (byte)((ST4 & ~(1 << 5)) | (value ? 1 << 5 : 0)); }
         public bool SuperTrain7_3 { get => (ST4 & (1 << 6)) == 1 << 6; set => ST4 = (byte)((ST4 & ~(1 << 6)) | (value ? 1 << 6 : 0)); }
         public bool SuperTrain8_1 { get => (ST4 & (1 << 7)) == 1 << 7; set => ST4 = (byte)((ST4 & ~(1 << 7)) | (value ? 1 << 7 : 0)); }
+        public uint SuperTrainBitFlags { get => BitConverter.ToUInt32(Data, 0x2C); set => BitConverter.GetBytes(value).CopyTo(Data); }
         private byte RIB0 { get => Data[0x30]; set => Data[0x30] = value; } // Ribbons are read as uints, but let's keep them per byte.
         private byte RIB1 { get => Data[0x31]; set => Data[0x31] = value; }
         private byte RIB2 { get => Data[0x32]; set => Data[0x32] = value; }
@@ -202,8 +196,8 @@ namespace PKHeX.Core
         public bool RibbonChampionRegional      { get => (RIB4 & (1 << 2)) == 1 << 2; set => RIB4 = (byte)((RIB4 & ~(1 << 2)) | (value ? 1 << 2 : 0)); }
         public bool RibbonChampionNational      { get => (RIB4 & (1 << 3)) == 1 << 3; set => RIB4 = (byte)((RIB4 & ~(1 << 3)) | (value ? 1 << 3 : 0)); }
         public bool RibbonChampionWorld         { get => (RIB4 & (1 << 4)) == 1 << 4; set => RIB4 = (byte)((RIB4 & ~(1 << 4)) | (value ? 1 << 4 : 0)); }
-        public bool RIB4_5                      { get => (RIB4 & (1 << 5)) == 1 << 5; set => RIB4 = (byte)((RIB4 & ~(1 << 5)) | (value ? 1 << 5 : 0)); } // Unused
-        public bool RIB4_6                      { get => (RIB4 & (1 << 6)) == 1 << 6; set => RIB4 = (byte)((RIB4 & ~(1 << 6)) | (value ? 1 << 6 : 0)); } // Unused
+        public bool HasContestMemoryRibbon      { get => (RIB4 & (1 << 5)) == 1 << 5; set => RIB4 = (byte)((RIB4 & ~(1 << 5)) | (value ? 1 << 5 : 0)); }
+        public bool HasBattleMemoryRibbon       { get => (RIB4 & (1 << 6)) == 1 << 6; set => RIB4 = (byte)((RIB4 & ~(1 << 6)) | (value ? 1 << 6 : 0)); }
         public bool RibbonChampionG6Hoenn       { get => (RIB4 & (1 << 7)) == 1 << 7; set => RIB4 = (byte)((RIB4 & ~(1 << 7)) | (value ? 1 << 7 : 0)); }
         public bool RibbonContestStar           { get => (RIB5 & (1 << 0)) == 1 << 0; set => RIB5 = (byte)((RIB5 & ~(1 << 0)) | (value ? 1 << 0 : 0)); }
         public bool RibbonMasterCoolness        { get => (RIB5 & (1 << 1)) == 1 << 1; set => RIB5 = (byte)((RIB5 & ~(1 << 1)) | (value ? 1 << 1 : 0)); }
@@ -221,8 +215,8 @@ namespace PKHeX.Core
         public bool RIB6_5                      { get => (RIB6 & (1 << 5)) == 1 << 5; set => RIB6 = (byte)((RIB6 & ~(1 << 5)) | (value ? 1 << 5 : 0)); } // Unused
         public bool RIB6_6                      { get => (RIB6 & (1 << 6)) == 1 << 6; set => RIB6 = (byte)((RIB6 & ~(1 << 6)) | (value ? 1 << 6 : 0)); } // Unused
         public bool RIB6_7                      { get => (RIB6 & (1 << 7)) == 1 << 7; set => RIB6 = (byte)((RIB6 & ~(1 << 7)) | (value ? 1 << 7 : 0)); } // Unused
-        public int RibbonCountMemoryContest { get => Data[0x38]; set => Data[0x38] = (byte)value; }
-        public int RibbonCountMemoryBattle { get => Data[0x39]; set => Data[0x39] = (byte)value; }
+        public int RibbonCountMemoryContest { get => Data[0x38]; set => HasContestMemoryRibbon = (Data[0x38] = (byte)value) != 0; }
+        public int RibbonCountMemoryBattle { get => Data[0x39]; set => HasBattleMemoryRibbon = (Data[0x39] = (byte)value) != 0; }
         private ushort DistByte { get => BitConverter.ToUInt16(Data, 0x3A); set => BitConverter.GetBytes(value).CopyTo(Data, 0x3A); }
         public bool DistSuperTrain1 { get => (DistByte & (1 << 0)) == 1 << 0; set => DistByte = (byte)((DistByte & ~(1 << 0)) | (value ? 1 << 0 : 0)); }
         public bool DistSuperTrain2 { get => (DistByte & (1 << 1)) == 1 << 1; set => DistByte = (byte)((DistByte & ~(1 << 1)) | (value ? 1 << 1 : 0)); }
@@ -232,7 +226,7 @@ namespace PKHeX.Core
         public bool DistSuperTrain6 { get => (DistByte & (1 << 5)) == 1 << 5; set => DistByte = (byte)((DistByte & ~(1 << 5)) | (value ? 1 << 5 : 0)); }
         public bool Dist7 { get => (DistByte & (1 << 6)) == 1 << 6; set => DistByte = (byte)((DistByte & ~(1 << 6)) | (value ? 1 << 6 : 0)); }
         public bool Dist8 { get => (DistByte & (1 << 7)) == 1 << 7; set => DistByte = (byte)((DistByte & ~(1 << 7)) | (value ? 1 << 7 : 0)); }
-        public uint FormDuration { get => BitConverter.ToUInt32(Data, 0x3C); set => BitConverter.GetBytes(value).CopyTo(Data, 0x3C); }
+        public uint FormArgument { get => BitConverter.ToUInt32(Data, 0x3C); set => BitConverter.GetBytes(value).CopyTo(Data, 0x3C); }
         #endregion
         #region Block B
         public override string Nickname
@@ -242,8 +236,8 @@ namespace PKHeX.Core
             {
                 if (!IsNicknamed)
                 {
-                    int lang = PKX.GetSpeciesNameLanguage(Species, value, 7, Language);
-                    if (lang == 9 || lang == 10)
+                    int lang = SpeciesName.GetSpeciesNameLanguage(Species, Language, value, 7);
+                    if (lang == (int)LanguageID.ChineseS || lang == (int)LanguageID.ChineseT)
                     {
                         StringConverter.SetString7(value, 12, lang, chinese: true).CopyTo(Data, 0x40);
                         return;
@@ -310,18 +304,18 @@ namespace PKHeX.Core
             set => BitConverter.GetBytes((ushort)value).CopyTo(Data, 0x70);
         }
 
-        public override bool SecretSuperTrainingUnlocked { get => (Data[0x72] & 1) == 1; set => Data[0x72] = (byte)((Data[0x72] & ~1) | (value ? 1 : 0)); }
-        public override bool SecretSuperTrainingComplete { get => (Data[0x72] & 2) == 2; set => Data[0x72] = (byte)((Data[0x72] & ~2) | (value ? 2 : 0)); }
+        public bool SecretSuperTrainingUnlocked { get => (Data[0x72] & 1) == 1; set => Data[0x72] = (byte)((Data[0x72] & ~1) | (value ? 1 : 0)); }
+        public bool SecretSuperTrainingComplete { get => (Data[0x72] & 2) == 2; set => Data[0x72] = (byte)((Data[0x72] & ~2) | (value ? 2 : 0)); }
         public byte _0x73 { get => Data[0x73]; set => Data[0x73] = value; }
         private uint IV32 { get => BitConverter.ToUInt32(Data, 0x74); set => BitConverter.GetBytes(value).CopyTo(Data, 0x74); }
-        public override int IV_HP { get => (int)(IV32 >> 00) & 0x1F; set => IV32 = (uint)((IV32 & ~(0x1F << 00)) | (uint)((value > 31 ? 31 : value) << 00)); }
-        public override int IV_ATK { get => (int)(IV32 >> 05) & 0x1F; set => IV32 = (uint)((IV32 & ~(0x1F << 05)) | (uint)((value > 31 ? 31 : value) << 05)); }
-        public override int IV_DEF { get => (int)(IV32 >> 10) & 0x1F; set => IV32 = (uint)((IV32 & ~(0x1F << 10)) | (uint)((value > 31 ? 31 : value) << 10)); }
-        public override int IV_SPE { get => (int)(IV32 >> 15) & 0x1F; set => IV32 = (uint)((IV32 & ~(0x1F << 15)) | (uint)((value > 31 ? 31 : value) << 15)); }
-        public override int IV_SPA { get => (int)(IV32 >> 20) & 0x1F; set => IV32 = (uint)((IV32 & ~(0x1F << 20)) | (uint)((value > 31 ? 31 : value) << 20)); }
-        public override int IV_SPD { get => (int)(IV32 >> 25) & 0x1F; set => IV32 = (uint)((IV32 & ~(0x1F << 25)) | (uint)((value > 31 ? 31 : value) << 25)); }
-        public override bool IsEgg { get => ((IV32 >> 30) & 1) == 1; set => IV32 = (uint)((IV32 & ~0x40000000) | (uint)(value ? 0x40000000 : 0)); }
-        public override bool IsNicknamed { get => ((IV32 >> 31) & 1) == 1; set => IV32 = (IV32 & 0x7FFFFFFF) | (value ? 0x80000000 : 0); }
+        public override int IV_HP  { get => (int)(IV32 >> 00) & 0x1F; set => IV32 = (IV32 & ~(0x1Fu << 00)) | ((value > 31 ? 31u : (uint)value) << 00); }
+        public override int IV_ATK { get => (int)(IV32 >> 05) & 0x1F; set => IV32 = (IV32 & ~(0x1Fu << 05)) | ((value > 31 ? 31u : (uint)value) << 05); }
+        public override int IV_DEF { get => (int)(IV32 >> 10) & 0x1F; set => IV32 = (IV32 & ~(0x1Fu << 10)) | ((value > 31 ? 31u : (uint)value) << 10); }
+        public override int IV_SPE { get => (int)(IV32 >> 15) & 0x1F; set => IV32 = (IV32 & ~(0x1Fu << 15)) | ((value > 31 ? 31u : (uint)value) << 15); }
+        public override int IV_SPA { get => (int)(IV32 >> 20) & 0x1F; set => IV32 = (IV32 & ~(0x1Fu << 20)) | ((value > 31 ? 31u : (uint)value) << 20); }
+        public override int IV_SPD { get => (int)(IV32 >> 25) & 0x1F; set => IV32 = (IV32 & ~(0x1Fu << 25)) | ((value > 31 ? 31u : (uint)value) << 25); }
+        public override bool IsEgg { get => ((IV32 >> 30) & 1) == 1; set => IV32 = (IV32 & ~0x40000000u) | (value ? 0x40000000u : 0u); }
+        public override bool IsNicknamed { get => ((IV32 >> 31) & 1) == 1; set => IV32 = (IV32 & 0x7FFFFFFFu) | (value ? 0x80000000u : 0u); }
         #endregion
         #region Block C
         public override string HT_Name { get => GetString(0x78, 24); set => SetString(value, 12).CopyTo(Data, 0x78); }
@@ -389,7 +383,7 @@ namespace PKHeX.Core
         public override int Language { get => Data[0xE3]; set => Data[0xE3] = (byte)value; }
         #endregion
         #region Battle Stats
-        public int Status_Condition { get => BitConverter.ToInt32(Data, 0xE8); set => BitConverter.GetBytes(value).CopyTo(Data, 0xE8); }
+        public override int Status_Condition { get => BitConverter.ToInt32(Data, 0xE8); set => BitConverter.GetBytes(value).CopyTo(Data, 0xE8); }
         public override int Stat_Level { get => Data[0xEC]; set => Data[0xEC] = (byte)value; }
         public byte DirtType { get => Data[0xED]; set => Data[0xED] = value; }
         public byte DirtLocation { get => Data[0xEE]; set => Data[0xEE] = value; }
@@ -403,22 +397,9 @@ namespace PKHeX.Core
         public override int Stat_SPD { get => BitConverter.ToUInt16(Data, 0xFC); set => BitConverter.GetBytes((ushort)value).CopyTo(Data, 0xFC); }
         #endregion
 
-        // Simple Generated Attributes
-        public override int CurrentFriendship
+        public int SuperTrainingMedalCount(int maxCount = 30)
         {
-            get => CurrentHandler == 0 ? OT_Friendship : HT_Friendship;
-            set { if (CurrentHandler == 0) OT_Friendship = value; else HT_Friendship = value; }
-        }
-
-        public int OppositeFriendship
-        {
-            get => CurrentHandler == 1 ? OT_Friendship : HT_Friendship;
-            set { if (CurrentHandler == 1) OT_Friendship = value; else HT_Friendship = value; }
-        }
-
-        public override int SuperTrainingMedalCount(int maxCount = 30)
-        {
-            uint value = BitConverter.ToUInt32(Data, 0x2C);
+            uint value = SuperTrainBitFlags;
             int TrainCount = 0;
             value >>= 2;
             for (int i = 0; i < maxCount; i++)
@@ -431,29 +412,7 @@ namespace PKHeX.Core
             return TrainCount;
         }
 
-        public override int PSV => (int)((PID >> 16 ^ (PID & 0xFFFF)) >> 4);
-        public override int TSV => (TID ^ SID) >> 4;
         public bool IsUntradedEvent6 => Geo1_Country == 0 && Geo1_Region == 0 && Met_Location / 10000 == 4 && Gen6;
-        public override bool IsUntraded => Data[0x78] == 0 && Data[0x78 + 1] == 0 && Format == GenNumber; // immediately terminated HT_Name data (\0)
-
-        // Complex Generated Attributes
-        public override int Characteristic
-        {
-            get
-            {
-                // Characteristic with EC%6
-                int pm6 = (int)(EncryptionConstant % 6); // EC MOD 6
-                int maxIV = IVs.Max();
-                int pm6stat = 0;
-
-                for (int i = 0; i < 6; i++)
-                {
-                    if (IVs[pm6stat = pm6++ % 6] == maxIV)
-                        break;
-                }
-                return (pm6stat * 5) + (maxIV % 5);
-            }
-        }
 
         public override int[] Markings
         {
@@ -476,39 +435,6 @@ namespace PKHeX.Core
             }
         }
 
-        // Methods
-        protected override byte[] Encrypt()
-        {
-            RefreshChecksum();
-            return PKX.EncryptArray(Data);
-        }
-
-        // General User-error Fixes
-        public void FixRelearn()
-        {
-            while (true)
-            {
-                if (RelearnMove4 != 0 && RelearnMove3 == 0)
-                {
-                    RelearnMove3 = RelearnMove4;
-                    RelearnMove4 = 0;
-                }
-                if (RelearnMove3 != 0 && RelearnMove2 == 0)
-                {
-                    RelearnMove2 = RelearnMove3;
-                    RelearnMove3 = 0;
-                    continue;
-                }
-                if (RelearnMove2 != 0 && RelearnMove1 == 0)
-                {
-                    RelearnMove1 = RelearnMove2;
-                    RelearnMove2 = 0;
-                    continue;
-                }
-                break;
-            }
-        }
-
         public void FixMemories()
         {
             if (IsEgg) // No memories if is egg.
@@ -518,7 +444,7 @@ namespace PKHeX.Core
                 this.ClearGeoLocationData();
 
                 // Clear Handler
-                HT_Name = "".PadRight(11, '\0');
+                HT_Name = string.Empty.PadRight(11, '\0');
                 return;
             }
 
@@ -536,68 +462,40 @@ namespace PKHeX.Core
             }
         }
 
-        // Synthetic Trading Logic
-        public void Trade(string SAV_Trainer, int SAV_TID, int SAV_SID, int SAV_COUNTRY, int SAV_REGION, int SAV_GENDER, bool Bank, int Day = 1, int Month = 1, int Year = 2015)
-        {
-            // Eggs do not have any modifications done if they are traded
-            if (IsEgg && !(SAV_Trainer == OT_Name && SAV_TID == TID && SAV_SID == SID && SAV_GENDER == OT_Gender))
-                SetLinkTradeEgg(Day, Month, Year);
-            // Process to the HT if the OT of the Pokémon does not match the SAV's OT info.
-            else if (!TradeOT(SAV_Trainer, SAV_TID, SAV_SID, SAV_COUNTRY, SAV_REGION, SAV_GENDER, Bank))
-                TradeHT(SAV_Trainer, SAV_COUNTRY, SAV_REGION, SAV_GENDER, Bank);
-        }
-
-        private bool TradeOT(string SAV_Trainer, int SAV_TID, int SAV_SID, int SAV_COUNTRY, int SAV_REGION, int SAV_GENDER, bool Bank)
+        protected override bool TradeOT(ITrainerInfo tr)
         {
             // Check to see if the OT matches the SAV's OT info.
-            if (!(SAV_Trainer == OT_Name && SAV_TID == TID && SAV_SID == SID && SAV_GENDER == OT_Gender))
+            if (!(tr.OT == OT_Name && tr.TID == TID && tr.SID == SID && tr.Gender == OT_Gender))
                 return false;
 
             CurrentHandler = 0;
-            if (!IsUntraded && (SAV_COUNTRY != Geo1_Country || SAV_REGION != Geo1_Region) && Bank)
-                this.TradeGeoLocation(SAV_COUNTRY, SAV_REGION);
-
             return true;
         }
 
-        private void TradeHT(string SAV_Trainer, int SAV_COUNTRY, int SAV_REGION, int SAV_GENDER, bool Bank)
+        protected override void TradeHT(ITrainerInfo tr)
         {
-            if (SAV_Trainer != HT_Name || SAV_GENDER != HT_Gender || (Geo1_Country == 0 && Geo1_Region == 0 && !IsUntradedEvent6))
+            if (tr.OT != HT_Name || tr.Gender != HT_Gender || (Geo1_Country == 0 && Geo1_Region == 0 && !IsUntradedEvent6))
             {
-                // No geolocations are set ingame -- except for bank transfers.
-                if (Bank)
-                    this.TradeGeoLocation(SAV_COUNTRY, SAV_REGION);
+                // No geolocations are set ingame -- except for bank transfers. Don't emulate bank transfers
+                // this.TradeGeoLocation(tr.Country, tr.SubRegion);
             }
 
-            CurrentHandler = 1;
-            if (HT_Name != SAV_Trainer)
+            if (HT_Name != tr.OT)
             {
                 HT_Friendship = PersonalInfo.BaseFriendship;
                 HT_Affection = 0;
+                HT_Name = tr.OT;
             }
-            HT_Name = SAV_Trainer;
-            HT_Gender = SAV_GENDER;
-
-            // Make a memory if no memory already exists. Pretty terrible way of doing this but I'd rather not overwrite existing memories.
-            if (HT_Memory == 0)
-                TradeMemory(Bank);
+            CurrentHandler = 1;
+            HT_Gender = tr.Gender;
         }
+
         // Misc Updates
-        public void TradeMemory(bool Bank)
+        public override void TradeMemory(bool Bank)
         {
-            if (!Bank)
-                return;
-
-            HT_Memory = 4; // Link trade to [VAR: General Location]
-            HT_TextVar = 0; // Somewhere (Bank)
-            HT_Intensity = 1;
-            HT_Feeling = Memories.GetRandomFeeling(HT_Memory, 10); // 0-9 Bank
+            if (Bank)
+                base.TradeMemory(true);
         }
-
-        // Legality Properties
-        public override bool WasLink => Met_Location == 30011;
-        public override bool WasEvent => (Met_Location > 40000 && Met_Location < 50000) || FatefulEncounter;
-        public override bool WasEventEgg => GenNumber < 5 ? base.WasEventEgg : ((Egg_Location > 40000 && Egg_Location < 50000) || (FatefulEncounter && Egg_Location == 30002)) && Met_Level == 1;
 
         // Maximums
         public override int MaxMoveID => Legal.MaxMoveID_7_USUM;
@@ -606,9 +504,153 @@ namespace PKHeX.Core
         public override int MaxItemID => Legal.MaxItemID_7_USUM;
         public override int MaxBallID => Legal.MaxBallID_7;
         public override int MaxGameID => Legal.MaxGameID_7;
-        public override int MaxIV => 31;
-        public override int MaxEV => 252;
-        public override int OTLength => 12;
-        public override int NickLength => 12;
+
+        public PK8 ConvertToPK8()
+        {
+            var pk8 = new PK8
+            {
+                EncryptionConstant = EncryptionConstant,
+                Species = Species,
+                TID = TID,
+                SID = SID,
+                EXP = EXP,
+                PID = PID,
+                Ability = Ability,
+                AbilityNumber = AbilityNumber,
+                Markings = Markings,
+                Language = Language,
+                EV_HP = EV_HP,
+                EV_ATK = EV_ATK,
+                EV_DEF = EV_DEF,
+                EV_SPA = EV_SPA,
+                EV_SPD = EV_SPD,
+                EV_SPE = EV_SPE,
+                Move1 = Move1,
+                Move2 = Move2,
+                Move3 = Move3,
+                Move4 = Move4,
+                Move1_PPUps = Move1_PPUps,
+                Move2_PPUps = Move2_PPUps,
+                Move3_PPUps = Move3_PPUps,
+                Move4_PPUps = Move4_PPUps,
+                RelearnMove1 = RelearnMove1,
+                RelearnMove2 = RelearnMove2,
+                RelearnMove3 = RelearnMove3,
+                RelearnMove4 = RelearnMove4,
+                IV_HP = IV_HP,
+                IV_ATK = IV_ATK,
+                IV_DEF = IV_DEF,
+                IV_SPA = IV_SPA,
+                IV_SPD = IV_SPD,
+                IV_SPE = IV_SPE,
+                IsEgg = IsEgg,
+                IsNicknamed = IsNicknamed,
+                FatefulEncounter = FatefulEncounter,
+                Gender = Gender,
+                AltForm = AltForm,
+                Nature = Nature,
+                Nickname = Nickname,
+                Version = Version,
+                OT_Name = OT_Name,
+                MetDate = MetDate,
+                EggMetDate = EggMetDate,
+                Met_Location = Met_Location,
+                Egg_Location = Egg_Location,
+                Ball = Ball,
+                Met_Level = Met_Level,
+                OT_Gender = OT_Gender,
+                HyperTrainFlags = HyperTrainFlags,
+
+                // Locale does not transfer. All Zero
+                // Country = Country,
+                // Region = Region,
+                // ConsoleRegion = ConsoleRegion,
+
+                OT_Memory = OT_Memory,
+                OT_TextVar = OT_TextVar,
+                OT_Feeling = OT_Feeling,
+                OT_Intensity = OT_Intensity,
+
+                PKRS_Strain = PKRS_Strain,
+                PKRS_Days = PKRS_Days,
+                CNT_Cool = CNT_Cool,
+                CNT_Beauty = CNT_Beauty,
+                CNT_Cute = CNT_Cute,
+                CNT_Smart = CNT_Smart,
+                CNT_Tough = CNT_Tough,
+                CNT_Sheen = CNT_Sheen,
+
+                RibbonChampionG3Hoenn = RibbonChampionG3Hoenn,
+                RibbonChampionSinnoh = RibbonChampionSinnoh,
+                RibbonEffort = RibbonEffort,
+                RibbonAlert = RibbonAlert,
+                RibbonShock = RibbonShock,
+                RibbonDowncast = RibbonDowncast,
+                RibbonCareless = RibbonCareless,
+                RibbonRelax = RibbonRelax,
+                RibbonSnooze = RibbonSnooze,
+                RibbonSmile = RibbonSmile,
+                RibbonGorgeous = RibbonGorgeous,
+                RibbonRoyal = RibbonRoyal,
+                RibbonGorgeousRoyal = RibbonGorgeousRoyal,
+                RibbonArtist = RibbonArtist,
+                RibbonFootprint = RibbonFootprint,
+                RibbonRecord = RibbonRecord,
+                RibbonLegend = RibbonLegend,
+                RibbonCountry = RibbonCountry,
+                RibbonNational = RibbonNational,
+                RibbonEarth = RibbonEarth,
+                RibbonWorld = RibbonWorld,
+                RibbonClassic = RibbonClassic,
+                RibbonPremier = RibbonPremier,
+                RibbonEvent = RibbonEvent,
+                RibbonBirthday = RibbonBirthday,
+                RibbonSpecial = RibbonSpecial,
+                RibbonSouvenir = RibbonSouvenir,
+                RibbonWishing = RibbonWishing,
+                RibbonChampionBattle = RibbonChampionBattle,
+                RibbonChampionRegional = RibbonChampionRegional,
+                RibbonChampionNational = RibbonChampionNational,
+                RibbonChampionWorld = RibbonChampionWorld,
+                RibbonChampionKalos = RibbonChampionKalos,
+                RibbonChampionG6Hoenn = RibbonChampionG6Hoenn,
+                RibbonBestFriends = RibbonBestFriends,
+                RibbonTraining = RibbonTraining,
+                RibbonBattlerSkillful = RibbonBattlerSkillful,
+                RibbonBattlerExpert = RibbonBattlerExpert,
+                RibbonContestStar = RibbonContestStar,
+                RibbonMasterCoolness = RibbonMasterCoolness,
+                RibbonMasterBeauty = RibbonMasterBeauty,
+                RibbonMasterCuteness = RibbonMasterCuteness,
+                RibbonMasterCleverness = RibbonMasterCleverness,
+                RibbonMasterToughness = RibbonMasterToughness,
+                RibbonCountMemoryContest = RibbonCountMemoryContest,
+                RibbonCountMemoryBattle = RibbonCountMemoryBattle,
+                RibbonChampionAlola = RibbonChampionAlola,
+                RibbonBattleRoyale = RibbonBattleRoyale,
+                RibbonBattleTreeGreat = RibbonBattleTreeGreat,
+                RibbonBattleTreeMaster = RibbonBattleTreeMaster,
+
+                OT_Friendship = OT_Friendship,
+
+                // No Ribbons or Markings on transfer.
+
+                StatNature = Nature,
+                // HeightScalar = 0,
+                // WeightScalar = 0,
+            };
+
+            // Wipe Totem Forms
+            if (FormConverter.IsTotemForm(Species, AltForm, 7))
+                pk8.AltForm = FormConverter.GetTotemBaseForm(Species, AltForm);
+
+            // Fix PP and Stats
+            pk8.Heal();
+
+            // Fix Checksum
+            pk8.RefreshChecksum();
+
+            return pk8; // Done!
+        }
     }
 }

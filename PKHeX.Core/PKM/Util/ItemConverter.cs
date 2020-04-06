@@ -15,29 +15,29 @@ namespace PKHeX.Core
         /// Checks if the item can be kept during 3->4 conversion.
         /// </summary>
         /// <param name="item">Generation 3 Item ID.</param>
-        /// <returns>True if transferrable, False if not transferrable.</returns>
-        public static bool IsItemTransferrable34(ushort item) => item != NaN && item > 0;
+        /// <returns>True if transferable, False if not transferable.</returns>
+        internal static bool IsItemTransferable34(ushort item) => item != NaN && item > 0;
 
         /// <summary>
         /// Converts a Generation 3 Item ID to Generation 4+ Item ID.
         /// </summary>
         /// <param name="g3val">Generation 3 Item ID.</param>
         /// <returns>Generation 4+ Item ID.</returns>
-        public static ushort GetG4Item(ushort g3val) => g3val > arr3.Length ? NaN : arr3[g3val];
+        internal static ushort GetG4Item(ushort g3val) => g3val > arr3.Length ? NaN : arr3[g3val];
 
         /// <summary>
         /// Converts a Generation 2 Item ID to Generation 4+ Item ID.
         /// </summary>
         /// <param name="g2val">Generation 2 Item ID.</param>
         /// <returns>Generation 4+ Item ID.</returns>
-        public static ushort GetG4Item(byte g2val) => g2val > arr2.Length ? NaN : arr2[g2val];
+        internal static ushort GetG4Item(byte g2val) => g2val > arr2.Length ? NaN : arr2[g2val];
 
         /// <summary>
         /// Converts a Generation 4+ Item ID to Generation 3 Item ID.
         /// </summary>
         /// <param name="g4val">Generation 4+ Item ID.</param>
         /// <returns>Generation 3 Item ID.</returns>
-        public static ushort GetG3Item(ushort g4val)
+        private static ushort GetG3Item(ushort g4val)
         {
             if (g4val == NaN)
                 return 0;
@@ -50,7 +50,7 @@ namespace PKHeX.Core
         /// </summary>
         /// <param name="g4val">Generation 4+ Item ID.</param>
         /// <returns>Generation 2 Item ID.</returns>
-        public static byte GetG2Item(ushort g4val)
+        private static byte GetG2Item(ushort g4val)
         {
             if (g4val == NaN)
                 return 0;
@@ -160,13 +160,68 @@ namespace PKHeX.Core
             }
         }
 
-        public static int GetG2ItemTransfer(int g1val)
+        internal static int GetG2ItemTransfer(int g1val)
         {
-            if (!IsItemTransferrable12((ushort) g1val))
+            if (!IsItemTransferable12((ushort) g1val))
                 return GetTeruSamaItem(g1val);
             return g1val;
         }
 
-        public static bool IsItemTransferrable12(ushort item) => ((IList<ushort>) Legal.HeldItems_GSC).Contains(item);
+        private static bool IsItemTransferable12(ushort item) => ((IList<ushort>) Legal.HeldItems_GSC).Contains(item);
+
+        /// <summary>
+        /// Gets a format specific <see cref="PKM.HeldItem"/> value depending on the desired format and the provided item index &amp; origin format.
+        /// </summary>
+        /// <param name="item">Held Item to apply</param>
+        /// <param name="srcFormat">Format from importing</param>
+        /// <param name="destFormat">Format required for holder</param>
+        internal static int GetFormatHeldItemID(int item, int srcFormat, int destFormat)
+        {
+            if (item <= 0)
+                return 0;
+
+            if (destFormat == srcFormat)
+                return item;
+
+            if (destFormat != srcFormat && srcFormat <= 3) // past gen items
+            {
+                if (destFormat > 3) // try remapping
+                    return srcFormat == 2 ? GetG4Item((byte)item) : GetG4Item((ushort)item);
+
+                if (destFormat > srcFormat) // can't set past gen items
+                    return 0;
+
+                // ShowdownSet checks gen3 then gen2. For gen2 collisions (if any?) remap 3->4->2.
+                item = GetG4Item((ushort)item);
+                item = GetG2Item((ushort)item);
+                if (item <= 0)
+                    return 0;
+            }
+
+            return destFormat switch
+            {
+                1 => 0,
+                2 => (byte) item,
+                3 => GetG3Item((ushort) item),
+                _ => item
+            };
+        }
+
+        /// <summary>
+        /// Checks if an item ID is an HM
+        /// </summary>
+        /// <param name="item">Item ID</param>
+        /// <param name="generation">Generation the <see cref="item"/> exists in</param>
+        /// <returns>True if is an HM</returns>
+        internal static bool IsItemHM(ushort item, int generation)
+        {
+            return generation switch
+            {
+                1 => (196 <= item && item <= 200), // HMs
+                2 => (item >= 243), // HMs
+                3 => (339 <= item && item <= 346),
+                _ => ((420 <= item && item <= 427) || item == 737)
+            };
+        }
     }
 }

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace PKHeX.Core
@@ -6,37 +7,43 @@ namespace PKHeX.Core
     /// <summary> Generation 5 <see cref="PKM"/> format. </summary>
     public sealed class PK5 : PKM, IRibbonSetEvent3, IRibbonSetEvent4, IRibbonSetUnique3, IRibbonSetUnique4, IRibbonSetCommon3, IRibbonSetCommon4, IContestStats
     {
-        private static readonly byte[] Unused =
+        private static readonly ushort[] Unused =
         {
-            0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x5E, 0x63, 0x64, 0x65, 0x66, 0x67, 0x87
+            0x87, // PokeStar Fame -- this is first to prevent 0x42 from being the first ExtraByte as this byte has GUI functionality
+            0x42, // Hidden Ability/NPokemon
+            0x43, 0x44, 0x45, 0x46, 0x47,
+            0x5E, // unused
+            0x63, // last 8 bits of a 32bit ribbonset
+            0x64, 0x65, 0x66, 0x67, // unused 32bit ribbonset?
+            0x86, // unused
         };
 
-        public override byte[] ExtraBytes => Unused;
+        public override IReadOnlyList<ushort> ExtraBytes => Unused;
 
-        public override int SIZE_PARTY => PKX.SIZE_5PARTY;
-        public override int SIZE_STORED => PKX.SIZE_5STORED;
+        public override int SIZE_PARTY => PokeCrypto.SIZE_5PARTY;
+        public override int SIZE_STORED => PokeCrypto.SIZE_5STORED;
         public override int Format => 5;
         public override PersonalInfo PersonalInfo => PersonalTable.B2W2.GetFormeEntry(Species, AltForm);
 
-        public PK5() => Data = new byte[PKX.SIZE_5PARTY];
+        public override byte[] Data { get; }
+        public PK5() => Data = new byte[PokeCrypto.SIZE_5PARTY];
 
-        public PK5(byte[] decryptedData, string ident = null)
+        public PK5(byte[] data)
         {
-            Data = decryptedData ?? new byte[SIZE_PARTY];
-            PKMConverter.CheckEncrypted(ref Data, Format);
-            Identifier = ident;
-            if (Data.Length != SIZE_PARTY)
-                Array.Resize(ref Data, SIZE_PARTY);
+            PokeCrypto.DecryptIfEncrypted45(ref data);
+            if (data.Length != PokeCrypto.SIZE_5PARTY)
+                Array.Resize(ref data, PokeCrypto.SIZE_5PARTY);
+            Data = data;
         }
 
-        public override PKM Clone() => new PK5((byte[])Data.Clone(), Identifier);
+        public override PKM Clone() => new PK5((byte[])Data.Clone()){Identifier = Identifier};
 
         private string GetString(int Offset, int Count) => StringConverter.GetString5(Data, Offset, Count);
         private byte[] SetString(string value, int maxLength) => StringConverter.SetString5(value, maxLength);
 
         // Trash Bytes
-        public override byte[] Nickname_Trash { get => GetData(0x48, 22); set { if (value?.Length == 22) value.CopyTo(Data, 0x48); } }
-        public override byte[] OT_Trash { get => GetData(0x68, 16); set { if (value?.Length == 16) value.CopyTo(Data, 0x68); } }
+        public override byte[] Nickname_Trash { get => GetData(0x48, 22); set { if (value.Length == 22) value.CopyTo(Data, 0x48); } }
+        public override byte[] OT_Trash { get => GetData(0x68, 16); set { if (value.Length == 16) value.CopyTo(Data, 0x68); } }
 
         // Future Attributes
         public override uint EncryptionConstant { get => PID; set { } }
@@ -124,14 +131,14 @@ namespace PKHeX.Core
         public override int Move3_PPUps { get => Data[0x36]; set => Data[0x36] = (byte)value; }
         public override int Move4_PPUps { get => Data[0x37]; set => Data[0x37] = (byte)value; }
         private uint IV32 { get => BitConverter.ToUInt32(Data, 0x38); set => BitConverter.GetBytes(value).CopyTo(Data, 0x38); }
-        public override int IV_HP { get => (int)(IV32 >> 00) & 0x1F; set => IV32 = (uint)((IV32 & ~(0x1F << 00)) | (uint)((value > 31 ? 31 : value) << 00)); }
-        public override int IV_ATK { get => (int)(IV32 >> 05) & 0x1F; set => IV32 = (uint)((IV32 & ~(0x1F << 05)) | (uint)((value > 31 ? 31 : value) << 05)); }
-        public override int IV_DEF { get => (int)(IV32 >> 10) & 0x1F; set => IV32 = (uint)((IV32 & ~(0x1F << 10)) | (uint)((value > 31 ? 31 : value) << 10)); }
-        public override int IV_SPE { get => (int)(IV32 >> 15) & 0x1F; set => IV32 = (uint)((IV32 & ~(0x1F << 15)) | (uint)((value > 31 ? 31 : value) << 15)); }
-        public override int IV_SPA { get => (int)(IV32 >> 20) & 0x1F; set => IV32 = (uint)((IV32 & ~(0x1F << 20)) | (uint)((value > 31 ? 31 : value) << 20)); }
-        public override int IV_SPD { get => (int)(IV32 >> 25) & 0x1F; set => IV32 = (uint)((IV32 & ~(0x1F << 25)) | (uint)((value > 31 ? 31 : value) << 25)); }
-        public override bool IsEgg { get => ((IV32 >> 30) & 1) == 1; set => IV32 = (uint)((IV32 & ~0x40000000) | (uint)(value ? 0x40000000 : 0)); }
-        public override bool IsNicknamed { get => ((IV32 >> 31) & 1) == 1; set => IV32 = (IV32 & 0x7FFFFFFF) | (value ? 0x80000000 : 0); }
+        public override int IV_HP  { get => (int)(IV32 >> 00) & 0x1F; set => IV32 = (IV32 & ~(0x1Fu << 00)) | ((value > 31 ? 31u : (uint)value) << 00); }
+        public override int IV_ATK { get => (int)(IV32 >> 05) & 0x1F; set => IV32 = (IV32 & ~(0x1Fu << 05)) | ((value > 31 ? 31u : (uint)value) << 05); }
+        public override int IV_DEF { get => (int)(IV32 >> 10) & 0x1F; set => IV32 = (IV32 & ~(0x1Fu << 10)) | ((value > 31 ? 31u : (uint)value) << 10); }
+        public override int IV_SPE { get => (int)(IV32 >> 15) & 0x1F; set => IV32 = (IV32 & ~(0x1Fu << 15)) | ((value > 31 ? 31u : (uint)value) << 15); }
+        public override int IV_SPA { get => (int)(IV32 >> 20) & 0x1F; set => IV32 = (IV32 & ~(0x1Fu << 20)) | ((value > 31 ? 31u : (uint)value) << 20); }
+        public override int IV_SPD { get => (int)(IV32 >> 25) & 0x1F; set => IV32 = (IV32 & ~(0x1Fu << 25)) | ((value > 31 ? 31u : (uint)value) << 25); }
+        public override bool IsEgg { get => ((IV32 >> 30) & 1) == 1; set => IV32 = (IV32 & ~0x40000000u) | (value ? 0x40000000u : 0u); }
+        public override bool IsNicknamed { get => ((IV32 >> 31) & 1) == 1; set => IV32 = (IV32 & 0x7FFFFFFFu) | (value ? 0x80000000u : 0u); }
 
         private byte RIB4 { get => Data[0x3C]; set => Data[0x3C] = value; } // Hoenn 1a
         private byte RIB5 { get => Data[0x3D]; set => Data[0x3D] = value; } // Hoenn 1b
@@ -239,11 +246,13 @@ namespace PKHeX.Core
         public override int Met_Level { get => Data[0x84] & ~0x80; set => Data[0x84] = (byte)((Data[0x84] & 0x80) | value); }
         public override int OT_Gender { get => Data[0x84] >> 7; set => Data[0x84] = (byte)((Data[0x84] & ~0x80) | value << 7); }
         public override int EncounterType { get => Data[0x85]; set => Data[0x85] = (byte)value; }
-        // 0x86-0x87 Unused
+        // 0x86 Unused
+        public byte PokeStarFame { get => Data[0x87]; set => Data[0x87] = value; }
+        public bool IsPokeStar { get => PokeStarFame > 250; set => PokeStarFame = (byte)(value ? 255 : 0); }
         #endregion
 
         #region Battle Stats
-        public int Status_Condition { get => BitConverter.ToInt32(Data, 0x88); set => BitConverter.GetBytes(value).CopyTo(Data, 0x88); }
+        public override int Status_Condition { get => BitConverter.ToInt32(Data, 0x88); set => BitConverter.GetBytes(value).CopyTo(Data, 0x88); }
         public override int Stat_Level { get => Data[0x8C]; set => Data[0x8C] = (byte)value; }
         public override int Stat_HPCurrent { get => BitConverter.ToUInt16(Data, 0x8E); set => BitConverter.GetBytes((ushort)value).CopyTo(Data, 0x8E); }
         public override int Stat_HPMax { get => BitConverter.ToUInt16(Data, 0x90); set => BitConverter.GetBytes((ushort)value).CopyTo(Data, 0x90); }
@@ -263,16 +272,14 @@ namespace PKHeX.Core
         {
             get
             {
-                // Characteristic with PID%6
-                int pm6 = (int)(PID % 6); // PID MOD 6
-                int maxIV = IVs.Max();
+                int pm6 = (int)(PID % 6); // PID
+                int maxIV = MaximumIV;
                 int pm6stat = 0;
-
                 for (int i = 0; i < 6; i++)
                 {
                     pm6stat = (pm6 + i) % 6;
-                    if (IVs[pm6stat] == maxIV)
-                        break; // P%6 is this stat
+                    if (GetIV(pm6stat) == maxIV)
+                        break;
                 }
                 return (pm6stat * 5) + (maxIV % 5);
             }
@@ -294,7 +301,7 @@ namespace PKHeX.Core
         protected override byte[] Encrypt()
         {
             RefreshChecksum();
-            return PKX.EncryptArray45(Data);
+            return PokeCrypto.EncryptArray45(Data);
         }
 
         // Synthetic Trading Logic
@@ -302,7 +309,7 @@ namespace PKHeX.Core
         {
             if (IsEgg && !(SAV_Trainer == OT_Name && SAV_TID == TID && SAV_SID == SID && SAV_GENDER == OT_Gender))
             {
-                SetLinkTradeEgg(Day, Month, Year, 30003);
+                SetLinkTradeEgg(Day, Month, Year, Locations.LinkTrade5);
                 return true;
             }
             return false;
@@ -363,10 +370,7 @@ namespace PKHeX.Core
             pk6.Move4_PPUps = Move4_PPUps;
 
             // Fix PP
-            pk6.Move1_PP = pk6.GetMovePP(pk6.Move1, pk6.Move1_PPUps);
-            pk6.Move2_PP = pk6.GetMovePP(pk6.Move2, pk6.Move2_PPUps);
-            pk6.Move3_PP = pk6.GetMovePP(pk6.Move3, pk6.Move3_PPUps);
-            pk6.Move4_PP = pk6.GetMovePP(pk6.Move4, pk6.Move4_PPUps);
+            pk6.HealPP();
 
             pk6.IV_HP = IV_HP;
             pk6.IV_ATK = IV_ATK;
@@ -383,8 +387,8 @@ namespace PKHeX.Core
             pk6.Nature = Nature;
 
             // Apply trash bytes for species name of current app language -- default to PKM's language if no match
-            int curLang = PKX.GetSpeciesNameLanguage(Species, Nickname, Format);
-            pk6.Nickname = PKX.GetSpeciesNameGeneration(Species, curLang < 0 ? Language : curLang, pk6.Format);
+            int curLang = SpeciesName.GetSpeciesNameLanguage(Species, Nickname, Format);
+            pk6.Nickname = SpeciesName.GetSpeciesNameGeneration(Species, curLang < 0 ? Language : curLang, pk6.Format);
             if (IsNicknamed)
                 pk6.Nickname = Nickname;
 
@@ -428,10 +432,8 @@ namespace PKHeX.Core
             }
 
             // Battle Ribbon Counter
-            // Winning Ribbon
-            if ((Data[0x3E] & 0x20) >> 5 == 1) battleribbons++;
-            // Victory Ribbon
-            if ((Data[0x3E] & 0x40) >> 6 == 1) battleribbons++;
+            if (RibbonWinning) battleribbons++;
+            if (RibbonVictory) battleribbons++;
             for (int i = 1; i < 7; i++)     // Sinnoh Battle Ribbons
                 if (((Data[0x24] >> i) & 1) == 1) battleribbons++;
 
@@ -440,134 +442,68 @@ namespace PKHeX.Core
             pk6.RibbonCountMemoryBattle = battleribbons;
 
             // Copy Ribbons to their new locations.
-            int bx30 = 0;
-            // bx30 |= 0;                             // Kalos Champ - New Kalos Ribbon
-            bx30 |= ((Data[0x3E] & 0x10) >> 4) << 1; // Hoenn Champion
-            bx30 |= ((Data[0x24] & 0x01) >> 0) << 2; // Sinnoh Champ
-            // bx30 |= 0;                             // Best Friend - New Kalos Ribbon
-            // bx30 |= 0;                             // Training    - New Kalos Ribbon
-            // bx30 |= 0;                             // Skillful    - New Kalos Ribbon
-            // bx30 |= 0;                             // Expert      - New Kalos Ribbon
-            bx30 |= ((Data[0x3F] & 0x01) >> 0) << 7; // Effort Ribbon
-            pk6.Data[0x30] = (byte)bx30;
+            pk6.RibbonChampionG3Hoenn = RibbonChampionG3Hoenn;
+            pk6.RibbonChampionSinnoh = RibbonChampionSinnoh;
+            pk6.RibbonEffort = RibbonEffort;
 
-            int bx31 = 0;
-            bx31 |= ((Data[0x24] & 0x80) >> 7) << 0;  // Alert
-            bx31 |= ((Data[0x25] & 0x01) >> 0) << 1;  // Shock
-            bx31 |= ((Data[0x25] & 0x02) >> 1) << 2;  // Downcast
-            bx31 |= ((Data[0x25] & 0x04) >> 2) << 3;  // Careless
-            bx31 |= ((Data[0x25] & 0x08) >> 3) << 4;  // Relax
-            bx31 |= ((Data[0x25] & 0x10) >> 4) << 5;  // Snooze
-            bx31 |= ((Data[0x25] & 0x20) >> 5) << 6;  // Smile
-            bx31 |= ((Data[0x25] & 0x40) >> 6) << 7;  // Gorgeous
-            pk6.Data[0x31] = (byte)bx31;
+            pk6.RibbonAlert = RibbonAlert;
+            pk6.RibbonShock = RibbonShock;
+            pk6.RibbonDowncast = RibbonDowncast;
+            pk6.RibbonCareless = RibbonCareless;
+            pk6.RibbonRelax = RibbonRelax;
+            pk6.RibbonSnooze = RibbonSnooze;
+            pk6.RibbonSmile = RibbonSmile;
+            pk6.RibbonGorgeous = RibbonGorgeous;
 
-            int bx32 = 0;
-            bx32 |= ((Data[0x25] & 0x80) >> 7) << 0;  // Royal
-            bx32 |= ((Data[0x26] & 0x01) >> 0) << 1;  // Gorgeous Royal
-            bx32 |= ((Data[0x3E] & 0x80) >> 7) << 2;  // Artist
-            bx32 |= ((Data[0x26] & 0x02) >> 1) << 3;  // Footprint
-            bx32 |= ((Data[0x26] & 0x04) >> 2) << 4;  // Record
-            bx32 |= ((Data[0x26] & 0x10) >> 4) << 5;  // Legend
-            bx32 |= ((Data[0x3F] & 0x10) >> 4) << 6;  // Country
-            bx32 |= ((Data[0x3F] & 0x20) >> 5) << 7;  // National
-            pk6.Data[0x32] = (byte)bx32;
+            pk6.RibbonRoyal = RibbonRoyal;
+            pk6.RibbonGorgeousRoyal = RibbonGorgeousRoyal;
+            pk6.RibbonArtist = RibbonArtist;
+            pk6.RibbonFootprint = RibbonFootprint;
+            pk6.RibbonRecord = RibbonRecord;
+            pk6.RibbonLegend = RibbonLegend;
+            pk6.RibbonCountry = RibbonCountry;
+            pk6.RibbonNational = RibbonNational;
 
-            int bx33 = 0;
-            bx33 |= ((Data[0x3F] & 0x40) >> 6) << 0;  // Earth
-            bx33 |= ((Data[0x3F] & 0x80) >> 7) << 1;  // World
-            bx33 |= ((Data[0x27] & 0x04) >> 2) << 2;  // Classic
-            bx33 |= ((Data[0x27] & 0x08) >> 3) << 3;  // Premier
-            bx33 |= ((Data[0x26] & 0x08) >> 3) << 4;  // Event
-            bx33 |= ((Data[0x26] & 0x40) >> 6) << 5;  // Birthday
-            bx33 |= ((Data[0x26] & 0x80) >> 7) << 6;  // Special
-            bx33 |= ((Data[0x27] & 0x01) >> 0) << 7;  // Souvenir
-            pk6.Data[0x33] = (byte)bx33;
+            pk6.RibbonEarth = RibbonEarth;
+            pk6.RibbonWorld = RibbonWorld;
+            pk6.RibbonClassic = RibbonClassic;
+            pk6.RibbonPremier = RibbonPremier;
+            pk6.RibbonEvent = RibbonEvent;
+            pk6.RibbonBirthday = RibbonBirthday;
+            pk6.RibbonSpecial = RibbonSpecial;
+            pk6.RibbonSouvenir = RibbonSouvenir;
 
-            int bx34 = 0;
-            bx34 |= ((Data[0x27] & 0x02) >> 1) << 0;  // Wishing Ribbon
-            bx34 |= ((Data[0x3F] & 0x02) >> 1) << 1;  // Battle Champion
-            bx34 |= ((Data[0x3F] & 0x04) >> 2) << 2;  // Regional Champion
-            bx34 |= ((Data[0x3F] & 0x08) >> 3) << 3;  // National Champion
-            bx34 |= ((Data[0x26] & 0x20) >> 5) << 4;  // World Champion
-            pk6.Data[0x34] = (byte)bx34;
+            pk6.RibbonWishing = RibbonWishing;
+            pk6.RibbonChampionBattle = RibbonChampionBattle;
+            pk6.RibbonChampionRegional = RibbonChampionRegional;
+            pk6.RibbonChampionNational = RibbonChampionNational;
+            pk6.RibbonChampionWorld = RibbonChampionWorld;
 
             // Write Transfer Location - location is dependent on 3DS system that transfers.
-            pk6.Country = PKMConverter.Country;
-            pk6.Region = PKMConverter.Region;
-            pk6.ConsoleRegion = PKMConverter.ConsoleRegion;
+            PKMConverter.SetConsoleRegionData3DS(pk6);
+            PKMConverter.SetFirstCountryRegion(pk6);
 
             // Write the Memories, Friendship, and Origin!
             pk6.CurrentHandler = 1;
             pk6.HT_Name = PKMConverter.OT_Name;
             pk6.HT_Gender = PKMConverter.OT_Gender;
-            pk6.Geo1_Region = PKMConverter.Region;
-            pk6.Geo1_Country = PKMConverter.Country;
             pk6.HT_Intensity = 1;
             pk6.HT_Memory = 4;
             pk6.HT_Feeling = Memories.GetRandomFeeling(pk6.HT_Memory);
             // When transferred, friendship gets reset.
             pk6.OT_Friendship = pk6.HT_Friendship = PersonalInfo.BaseFriendship;
 
-            // Antishiny Mechanism
-            ushort LID = (ushort)(PID & 0xFFFF);
-            ushort HID = (ushort)(PID >> 0x10);
-
-            int XOR = TID ^ SID ^ LID ^ HID;
-            if (XOR >= 8 && XOR < 16) // If we get an illegal collision...
+            // Gen6 changed the shiny correlation to have 2x the rate.
+            // If the current PID would be shiny with those increased odds, fix it.
+            if ((PSV ^ TSV) == 1)
                 pk6.PID ^= 0x80000000;
 
             // HMs are not deleted 5->6, transfer away (but fix if blank spots?)
             pk6.FixMoves();
 
             // Fix Name Strings
-            pk6.Nickname = pk6.Nickname
-                .Replace('\u2467', '\u00d7') // ×
-                .Replace('\u2468', '\u00f7') // ÷
-                .Replace('\u246c', '\u2026') // …
-
-                .Replace('\u246d', '\uE08E') // ♂
-                .Replace('\u246e', '\uE08F') // ♀
-                .Replace('\u246f', '\uE090') // ♠
-                .Replace('\u2470', '\uE091') // ♣
-                .Replace('\u2471', '\uE092') // ♥
-                .Replace('\u2472', '\uE093') // ♦
-                .Replace('\u2473', '\uE094') // ★
-                .Replace('\u2474', '\uE095') // ◎
-
-                .Replace('\u2475', '\uE096') // ○
-                .Replace('\u2476', '\uE097') // □
-                .Replace('\u2477', '\uE098') // △
-                .Replace('\u2478', '\uE099') // ◇
-                .Replace('\u2479', '\uE09A') // ♪
-                .Replace('\u247a', '\uE09B') // ☀
-                .Replace('\u247b', '\uE09C') // ☁
-                .Replace('\u247d', '\uE09D') // ☂
-                ;
-
-            pk6.OT_Name = pk6.OT_Name
-                .Replace('\u2467', '\u00d7') // ×
-                .Replace('\u2468', '\u00f7') // ÷
-                .Replace('\u246c', '\u2026') // …
-
-                .Replace('\u246d', '\uE08E') // ♂
-                .Replace('\u246e', '\uE08F') // ♀
-                .Replace('\u246f', '\uE090') // ♠
-                .Replace('\u2470', '\uE091') // ♣
-                .Replace('\u2471', '\uE092') // ♥
-                .Replace('\u2472', '\uE093') // ♦
-                .Replace('\u2473', '\uE094') // ★
-                .Replace('\u2474', '\uE095') // ◎
-
-                .Replace('\u2475', '\uE096') // ○
-                .Replace('\u2476', '\uE097') // □
-                .Replace('\u2477', '\uE098') // △
-                .Replace('\u2478', '\uE099') // ◇
-                .Replace('\u2479', '\uE09A') // ♪
-                .Replace('\u247a', '\uE09B') // ☀
-                .Replace('\u247b', '\uE09C') // ☁
-                .Replace('\u247d', '\uE09D') // ☂
-                ;
+            pk6.Nickname = StringConverter345.TransferGlyphs56(pk6.Nickname);
+            pk6.OT_Name = StringConverter345.TransferGlyphs56(pk6.OT_Name);
 
             // Fix Checksum
             pk6.RefreshChecksum();

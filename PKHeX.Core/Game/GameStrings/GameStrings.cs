@@ -4,12 +4,15 @@ using System.Linq;
 
 namespace PKHeX.Core
 {
-    public class GameStrings : IBasicStrings
+    /// <summary>
+    /// Repository of localized game strings for a given <see cref="LanguageID"/>.
+    /// </summary>
+    public sealed class GameStrings : IBasicStrings
     {
         // PKM Info
         public readonly string[] specieslist, movelist, itemlist, abilitylist, types, natures, forms,
             memories, genloc, trainingbags, trainingstage, characteristics,
-            encountertypelist, gamelanguages, balllist, gamelist, pokeblocks, ribbons;
+            encountertypelist, balllist, gamelist, pokeblocks, ribbons;
 
         private readonly string[] g4items, g3coloitems, g3xditems, g3items, g2items, g1items;
 
@@ -20,10 +23,12 @@ namespace PKHeX.Core
         public readonly string[] metXY_00000, metXY_30000, metXY_40000, metXY_60000;
         public readonly string[] metSM_00000, metSM_30000, metSM_40000, metSM_60000;
         public readonly string[] metGG_00000, metGG_30000, metGG_40000, metGG_60000;
+        public readonly string[] metSWSH_00000, metSWSH_30000, metSWSH_40000, metSWSH_60000;
 
         // Misc
         public readonly string[] wallpapernames, puffs;
         private readonly string lang;
+        private readonly int LanguageIndex;
 
         public string EggName { get; }
         public IReadOnlyList<string> Species => specieslist;
@@ -33,14 +38,13 @@ namespace PKHeX.Core
         public IReadOnlyList<string> Types => types;
         public IReadOnlyList<string> Natures => natures;
 
-        private string[] Get(string ident) => GameInfo.GetStrings(ident, lang);
+        private string[] Get(string ident) => GameLanguage.GetStrings(ident, lang);
         private const string NPC = "NPC";
-        private static readonly string[] abilIdentifier = { " (1)", " (2)", " (H)" };
-        private static readonly IReadOnlyList<ComboItem> LanguageList = Util.GetUnsortedCBList("languages");
 
         public GameStrings(string l)
         {
             lang = l;
+            LanguageIndex = GameLanguage.GetLanguageIndex(l);
             ribbons = Get("ribbons");
             // Past Generation strings
             g3items = Get("ItemsG3");
@@ -84,7 +88,6 @@ namespace PKHeX.Core
             wallpapernames = Get("wallpaper");
             encountertypelist = Get("encountertype");
             gamelist = Get("games");
-            gamelanguages = Util.GetNulledStringArray(Util.GetStringList("languages"));
 
             balllist = new string[Legal.Items_Ball.Length];
             for (int i = 0; i < balllist.Length; i++)
@@ -122,12 +125,15 @@ namespace PKHeX.Core
             metGG_40000 = Get("gg_40000");
             metGG_60000 = metSM_60000;
 
+            metSWSH_00000 = Get("swsh_00000");
+            metSWSH_30000 = Get("swsh_30000");
+            metSWSH_40000 = Get("swsh_40000");
+            metSWSH_60000 = Get("swsh_60000");
+
             Sanitize();
 
             g4items = (string[])itemlist.Clone();
             Get("mail4").CopyTo(g4items, 137);
-
-            InitializeDataSources();
         }
 
         private static string[] SanitizeMetStringsCXD(string[] cxd)
@@ -136,7 +142,7 @@ namespace PKHeX.Core
             var metSanitize = (string[])cxd.Clone();
             for (int i = 0; i < metSanitize.Length; i++)
             {
-                if (cxd.Count(r => r == metSanitize[i]) > 1)
+                if (cxd.Count(z => z == metSanitize[i]) > 1)
                     metSanitize[i] += $" [{i:000}]";
             }
 
@@ -199,6 +205,14 @@ namespace PKHeX.Core
             foreach (var i in Legal.Pouch_ZCrystal_USUM)
                 itemlist[i] += " [Z]";
 
+            itemlist[0121] += " (1)"; // Pokémon Box Link
+            itemlist[1075] += " (2)"; // Pokémon Box Link
+
+            itemlist[1080] += " (SW/SH)"; // Fishing Rod
+
+            itemlist[1081] += " (1)"; // Rotom Bike
+            itemlist[1266] += " (2)"; // Rotom Bike
+
             for (int i = 12; i <= 29; i++) // Differentiate DNA Samples
                 g3coloitems[500 + i] += $" ({i - 11:00})";
             // differentiate G3 Card Key from Colo
@@ -208,15 +222,46 @@ namespace PKHeX.Core
         private void SanitizeMetLocations()
         {
             // Fix up some of the Location strings to make them more descriptive
+            SanitizeMetG4HGSS();
             SanitizeMetG5BW();
             SanitizeMetG6XY();
             SanitizeMetG7SM();
+            SanitizeMetG8SWSH();
+
+            if (lang == "es" || lang == "it")
+            {
+                // Campeonato Mundial duplicates
+                for (int i = 27; i < 34; i++)
+                    metXY_40000[i] += " (-)";
+
+                // Evento de Videojuegos -- first as duplicate
+                metXY_40000[34] += " (-)";
+                metSM_40000[37] += " (-)";
+                metGG_40000[26] += " (-)";
+            }
+
+            if (lang == "ko")
+            {
+                // Pokémon Ranger duplicate (should be Ranger Union)
+                metBW2_40000[70] += " (-)";
+            }
+        }
+
+        private void SanitizeMetG4HGSS()
+        {
+            metHGSS_00000[054] += " (DP/Pt)"; // Victory Road
+            metHGSS_00000[221] += " (HG/SS)"; // Victory Road
+
+            // German language duplicate; handle for all since it can be confused.
+            metHGSS_00000[104] += " (DP/Pt)"; // Vista Lighthouse
+            metHGSS_00000[212] += " (HG/SS)"; // Lighthouse
+
+            metHGSS_02000[1] += $" ({NPC})";     // Anything from an NPC
+            metHGSS_02000[2] += $" ({EggName})"; // Egg From Link Trade
         }
 
         private void SanitizeMetG5BW()
         {
-            metHGSS_02000[1] += $" ({NPC})";     // Anything from an NPC
-            metHGSS_02000[2] += $" ({EggName})"; // Egg From Link Trade
             metBW2_00000[36] = $"{metBW2_00000[84]}/{metBW2_00000[36]}"; // Cold Storage in BW = PWT in BW2
             metBW2_00000[40] += "(B/W)"; // Victory Road in BW
             metBW2_00000[134] += "(B2/W2)"; // Victory Road in B2W2
@@ -228,8 +273,11 @@ namespace PKHeX.Core
             if (metBW2_00000[2] == metBW2_40000[2 - 1])
                 metBW2_00000[2] += " (2)";
 
+            for (int i = 96; i < 108; i++)
+                metBW2_40000[i] += $" ({i - 96})";
+
             // Localize the Poketransfer to the language (30001)
-            metBW2_30000[1 - 1] = GameInfo.GetTransporterName(lang); // Default to English
+            metBW2_30000[1 - 1] = GameLanguage.GetTransporterName(LanguageIndex);
             metBW2_30000[2 - 1] += $" ({NPC})";             // Anything from an NPC
             metBW2_30000[3 - 1] += $" ({EggName})";         // Link Trade (Egg)
 
@@ -250,6 +298,9 @@ namespace PKHeX.Core
             metXY_00000[298] += " (OR/AS)";    // Victory Road
             metXY_30000[0] += $" ({NPC})";     // Anything from an NPC
             metXY_30000[1] += $" ({EggName})"; // Egg From Link Trade
+
+            for (int i = 62; i < 69; i++)
+                metXY_40000[i] += $" ({i - 61})";
         }
 
         private void SanitizeMetG7SM()
@@ -271,19 +322,58 @@ namespace PKHeX.Core
             metSM_30000[1] += $" ({EggName})";  // Egg From Link Trade
             for (int i = 2; i <= 5; i++) // distinguish first set of regions (unused) from second (used)
                 metSM_30000[i] += " (-)";
+
+            for (int i = 58; i < 65; i++) // distinguish Event year duplicates
+                metSM_40000[i] += " (-)";
+
+            for (int i = 47; i < 54; i++) // distinguish Event year duplicates
+                metGG_40000[i] += " (-)";
+        }
+
+        private void SanitizeMetG8SWSH()
+        {
+            // SWSH duplicates -- elaborate!
+            var metSWSH_00000_good = (string[])metSWSH_00000.Clone();
+            for (int i = 2; i < metSWSH_00000_good.Length; i += 2)
+            {
+                var nextLoc = metSWSH_00000[i + 1];
+                if (!string.IsNullOrWhiteSpace(nextLoc) && nextLoc[0] != '[')
+                    metSWSH_00000_good[i] += $" ({nextLoc})";
+            }
+
+            for (int i = 121; i <= 155; i+=2)
+                metSWSH_00000_good[i] = string.Empty; // clear Wild Area sub-zone strings (trips duplicate Test)
+
+            metSWSH_00000_good.CopyTo(metSWSH_00000, 0);
+
+            metSWSH_30000[0] += $" ({NPC})";      // Anything from an NPC
+            metSWSH_30000[1] += $" ({EggName})";  // Egg From Link Trade
+            for (int i = 2; i <= 5; i++) // distinguish first set of regions (unused) from second (used)
+                metSWSH_30000[i] += " (-)";
+            metSWSH_30000[18] += " (?)"; // Kanto for the third time
+
+            for (int i = 54; i < 60; i++) // distinguish Event year duplicates
+                metSWSH_40000[i] += " (-)";
+            metSWSH_40000[29] += " (-)"; // a Video game Event (in spanish etc) -- duplicate with line 39
+            metSWSH_40000[52] += " (-)"; // a Pokémon event -- duplicate with line 37
+
+            metSWSH_40000[80] += " (-)"; // Pokémon GO -- duplicate with 30000's entry
+            metSWSH_40000[85] += " (-)"; // Pokémon HOME -- duplicate with 30000's entry
+            // metSWSH_30000[11] += " (-)"; // Pokémon GO -- duplicate with 40000's entry
+            // metSWSH_30000[17] += " (-)"; // Pokémon HOME -- duplicate with 40000's entry
         }
 
         public IReadOnlyList<string> GetItemStrings(int generation, GameVersion game = GameVersion.Any)
         {
-            switch (generation)
+            return generation switch
             {
-                case 0: return Array.Empty<string>();
-                case 1: return g1items;
-                case 2: return g2items;
-                case 3: return GetItemStrings3(game);
-                case 4: return g4items; // mail names changed 4->5
-                default: return itemlist;
-            }
+                0 => Array.Empty<string>(),
+                1 => g1items,
+                2 => g2items,
+                3 => GetItemStrings3(game),
+                4 => g4items, // mail names changed 4->5
+                _ => itemlist
+            };
         }
 
         private string[] GetItemStrings3(GameVersion game)
@@ -304,260 +394,153 @@ namespace PKHeX.Core
             }
         }
 
-        // DataSource providing
-        public IReadOnlyList<ComboItem> ItemDataSource { get; private set; }
-        public IReadOnlyList<ComboItem> SpeciesDataSource { get; private set; }
-        public IReadOnlyList<ComboItem> BallDataSource { get; private set; }
-        public IReadOnlyList<ComboItem> NatureDataSource { get; private set; }
-        public IReadOnlyList<ComboItem> AbilityDataSource { get; private set; }
-        public IReadOnlyList<ComboItem> VersionDataSource { get; private set; }
-        public IReadOnlyList<ComboItem> LegalMoveDataSource { get; private set; }
-        public IReadOnlyList<ComboItem> HaXMoveDataSource { get; private set; }
-        public IReadOnlyList<ComboItem> MoveDataSource { get; set; }
-        public IReadOnlyList<ComboItem> EncounterTypeDataSource { get; private set; }
-
-        private IReadOnlyList<ComboItem> MetGen2 { get; set; }
-        private IReadOnlyList<ComboItem> MetGen3 { get; set; }
-        private IReadOnlyList<ComboItem> MetGen3CXD { get; set; }
-        private IReadOnlyList<ComboItem> MetGen4 { get; set; }
-        private IReadOnlyList<ComboItem> MetGen5 { get; set; }
-        private IReadOnlyList<ComboItem> MetGen6 { get; set; }
-        private IReadOnlyList<ComboItem> MetGen7 { get; set; }
-        private IReadOnlyList<ComboItem> MetGen7GG { get; set; }
-
-        public MemoryStrings Memories { get; private set; }
-
-        private void InitializeDataSources()
+        /// <summary>
+        /// Gets the location name for the specified parameters.
+        /// </summary>
+        /// <param name="eggmet">Location is from the <see cref="PKM.Egg_Location"/></param>
+        /// <param name="locval">Location value</param>
+        /// <param name="format">Current <see cref="PKM.Format"/></param>
+        /// <param name="generation"><see cref="PKM.GenNumber"/> of origin</param>
+        /// <param name="version">Current GameVersion (only applicable for <see cref="GameVersion.GG"/> differentiation)</param>
+        /// <returns>Location name</returns>
+        public string GetLocationName(bool eggmet, int locval, int format, int generation, GameVersion version)
         {
-            int[] ball_nums = { 007, 576, 013, 492, 497, 014, 495, 493, 496, 494, 011, 498, 008, 006, 012, 015, 009, 005, 499, 010, 001, 016, 851 };
-            int[] ball_vals = { 007, 025, 013, 017, 022, 014, 020, 018, 021, 019, 011, 023, 008, 006, 012, 015, 009, 005, 024, 010, 001, 016, 026 };
-            BallDataSource = Util.GetVariedCBListBall(itemlist, ball_nums, ball_vals);
-            SpeciesDataSource = Util.GetCBList(specieslist, null);
-            NatureDataSource = Util.GetCBList(natures, null);
-            AbilityDataSource = Util.GetCBList(abilitylist, null);
-            VersionDataSource = GetVersionList();
-            EncounterTypeDataSource = Util.GetCBList(encountertypelist, new[] {0}, Legal.Gen4EncounterTypes);
+            int gen = -1;
+            int bankID = 0;
 
-            HaXMoveDataSource = Util.GetCBList(movelist, null);
-            MoveDataSource = LegalMoveDataSource = HaXMoveDataSource.Where(m => !Legal.Z_Moves.Contains(m.Value)).ToList();
-            InitializeMetSources();
-            Memories = new MemoryStrings(this);
+            if (format == 2)
+            {
+                gen = 2;
+            }
+            else if (format == 3)
+            {
+                gen = 3;
+            }
+            else if (generation == 4 && (eggmet || format == 4)) // 4
+            {
+                const int size = 1000;
+                bankID = locval / size;
+                gen = 4;
+                locval %= size;
+            }
+            else // 5-7+
+            {
+                const int size = 10000;
+                bankID = locval / size;
+
+                int g = generation;
+                if (g >= 5)
+                    gen = g;
+                else if (format >= 5)
+                    gen = format;
+
+                locval %= size;
+                if (bankID >= 3) // 30000 and onwards don't use 0th index, shift down 1
+                    locval--;
+            }
+
+            var bank = GetLocationNames(gen, bankID, version);
+            if (bank.Count <= locval)
+                return string.Empty;
+            return bank[locval];
         }
 
-        private IReadOnlyList<ComboItem> GetVersionList()
+        /// <summary>
+        /// Gets the location names array for a specified generation.
+        /// </summary>
+        /// <param name="gen">Generation to get location names for.</param>
+        /// <param name="bankID">BankID used to choose the text bank.</param>
+        /// <param name="version">Version of origin</param>
+        /// <returns>List of location names.</returns>
+        public IReadOnlyList<string> GetLocationNames(int gen, int bankID, GameVersion version)
         {
-            var ver = Util.GetCBList(gamelist,
-                Legal.Games_7gg,
-                Legal.Games_7usum, Legal.Games_7sm,
-                Legal.Games_6oras, Legal.Games_6xy,
-                Legal.Games_5, Legal.Games_4, Legal.Games_4e, Legal.Games_4r,
-                Legal.Games_3, Legal.Games_3e, Legal.Games_3r, Legal.Games_3s);
-            ver.AddRange(Util.GetCBList(gamelist, Legal.Games_7vc1).OrderBy(g => g.Value)); // stuff to end unsorted
-            ver.AddRange(Util.GetCBList(gamelist, Legal.Games_7vc2).OrderBy(g => g.Value)); // stuff to end unsorted
-            ver.AddRange(Util.GetCBList(gamelist, Legal.Games_7go).OrderBy(g => g.Value)); // stuff to end unsorted
-            return ver;
-        }
-
-        private void InitializeMetSources()
-        {
-            // Gen 2
+            switch (gen)
             {
-                var met_list = Util.GetCBList(metGSC_00000, Enumerable.Range(0, 0x5F).ToArray());
-                met_list = Util.GetOffsetCBList(met_list, metGSC_00000, 00000, new[] { 0x7E, 0x7F });
-                MetGen2 = met_list;
-            }
-            // Gen 3
-            {
-                var met_list = Util.GetCBList(metRSEFRLG_00000, Enumerable.Range(0, 213).ToArray());
-                met_list = Util.GetOffsetCBList(met_list, metRSEFRLG_00000, 00000, new[] { 253, 254, 255 });
-                MetGen3 = met_list;
-
-                MetGen3CXD = Util.GetCBList(metCXD_00000, Enumerable.Range(0, metCXD_00000.Length).ToArray()).Where(c => c.Text.Length > 0).ToList();
-            }
-            // Gen 4
-            {
-                var met_list = Util.GetCBList(metHGSS_00000, new[] { 0 });
-                met_list = Util.GetOffsetCBList(met_list, metHGSS_02000, 2000, new[] { 2000 });
-                met_list = Util.GetOffsetCBList(met_list, metHGSS_02000, 2000, new[] { 2002 });
-                met_list = Util.GetOffsetCBList(met_list, metHGSS_03000, 3000, new[] { 3001 });
-                met_list = Util.GetOffsetCBList(met_list, metHGSS_00000, 0000, Legal.Met_HGSS_0);
-                met_list = Util.GetOffsetCBList(met_list, metHGSS_02000, 2000, Legal.Met_HGSS_2);
-                met_list = Util.GetOffsetCBList(met_list, metHGSS_03000, 3000, Legal.Met_HGSS_3);
-                MetGen4 = met_list;
-            }
-            // Gen 5
-            {
-                var met_list = Util.GetCBList(metBW2_00000, new[] { 0 });
-                met_list = Util.GetOffsetCBList(met_list, metBW2_60000, 60001, new[] { 60002 });
-                met_list = Util.GetOffsetCBList(met_list, metBW2_30000, 30001, new[] { 30003 });
-                met_list = Util.GetOffsetCBList(met_list, metBW2_00000, 00000, Legal.Met_BW2_0);
-                met_list = Util.GetOffsetCBList(met_list, metBW2_30000, 30001, Legal.Met_BW2_3);
-                met_list = Util.GetOffsetCBList(met_list, metBW2_40000, 40001, Legal.Met_BW2_4);
-                met_list = Util.GetOffsetCBList(met_list, metBW2_60000, 60001, Legal.Met_BW2_6);
-                MetGen5 = met_list;
-            }
-            // Gen 6
-            {
-                var met_list = Util.GetCBList(metXY_00000, new[] { 0 });
-                met_list = Util.GetOffsetCBList(met_list, metXY_60000, 60001, new[] { 60002 });
-                met_list = Util.GetOffsetCBList(met_list, metXY_30000, 30001, new[] { 30002 });
-                met_list = Util.GetOffsetCBList(met_list, metXY_00000, 00000, Legal.Met_XY_0);
-                met_list = Util.GetOffsetCBList(met_list, metXY_30000, 30001, Legal.Met_XY_3);
-                met_list = Util.GetOffsetCBList(met_list, metXY_40000, 40001, Legal.Met_XY_4);
-                met_list = Util.GetOffsetCBList(met_list, metXY_60000, 60001, Legal.Met_XY_6);
-                MetGen6 = met_list;
-            }
-            // Gen 7
-            {
-                var met_list = Util.GetCBList(metSM_00000, new[] { 0 });
-                met_list = Util.GetOffsetCBList(met_list, metSM_60000, 60001, new[] { 60002 });
-                met_list = Util.GetOffsetCBList(met_list, metSM_30000, 30001, new[] { 30002 });
-                met_list = Util.GetOffsetCBList(met_list, metSM_00000, 00000, Legal.Met_SM_0);
-                met_list = Util.GetOffsetCBList(met_list, metSM_30000, 30001, Legal.Met_SM_3);
-                met_list = Util.GetOffsetCBList(met_list, metSM_40000, 40001, Legal.Met_SM_4);
-                met_list = Util.GetOffsetCBList(met_list, metSM_60000, 60001, Legal.Met_SM_6);
-                MetGen7 = met_list;
-            }
-            // Gen 7 GG
-            {
-                var met_list = Util.GetCBList(metGG_00000, new[] { 0 });
-                met_list = Util.GetOffsetCBList(met_list, metGG_60000, 60001, new[] { 60002 });
-                met_list = Util.GetOffsetCBList(met_list, metGG_30000, 30001, new[] { 30002 });
-                met_list = Util.GetOffsetCBList(met_list, metGG_00000, 00000, Legal.Met_GG_0);
-                met_list = Util.GetOffsetCBList(met_list, metGG_30000, 30001, Legal.Met_GG_3);
-                met_list = Util.GetOffsetCBList(met_list, metGG_40000, 40001, Legal.Met_GG_4);
-                met_list = Util.GetOffsetCBList(met_list, metGG_60000, 60001, Legal.Met_GG_6);
-                MetGen7GG = met_list;
+                case 2: return metGSC_00000;
+                case 3:
+                    return GameVersion.CXD.Contains(version) ? metCXD_00000 : metRSEFRLG_00000;
+                case 4: return GetLocationNames4(bankID);
+                case 5: return GetLocationNames5(bankID);
+                case 6: return GetLocationNames6(bankID);
+                case 7:
+                    if (GameVersion.GG.Contains(version))
+                        return GetLocationNames7GG(bankID);
+                    return GetLocationNames7(bankID);
+                case 8:
+                    return GetLocationNames8(bankID);
+                default:
+                    return Array.Empty<string>();
             }
         }
 
-        public void SetItemDataSource(GameVersion game, int generation, int MaxItemID, IEnumerable<ushort> allowed = null, bool HaX = false)
+        private IReadOnlyList<string> GetLocationNames4(int bankID)
         {
-            var items = GetItemStrings(generation, game);
-            ItemDataSource = Util.GetCBList(items, (allowed == null || HaX ? Enumerable.Range(0, MaxItemID) : allowed.Select(i => (int)i)).ToArray());
+            return bankID switch
+            {
+                0 => metHGSS_00000,
+                2 => metHGSS_02000,
+                3 => metHGSS_03000,
+                _ => Array.Empty<string>()
+            };
         }
 
-        public IReadOnlyList<ComboItem> GetLocationList(GameVersion Version, int SaveFormat, bool egg)
+        public IReadOnlyList<string> GetLocationNames5(int bankID)
         {
-            if (SaveFormat == 2)
-                return MetGen2;
-
-            if (egg && Version < GameVersion.W && SaveFormat >= 5)
-                return MetGen4;
-
-            switch (Version)
+            return bankID switch
             {
-                case GameVersion.CXD:
-                    if (SaveFormat == 3)
-                        return MetGen3CXD;
-                    break;
-
-                case GameVersion.R:
-                case GameVersion.S:
-                    if (SaveFormat == 3)
-                        return MetGen3.OrderByDescending(loc => loc.Value <= 87).ToList(); // Ferry
-                    break;
-                case GameVersion.E:
-                    if (SaveFormat == 3)
-                        return MetGen3.OrderByDescending(loc => loc.Value <= 87 || (loc.Value >= 196 && loc.Value <= 212)).ToList(); // Trainer Hill
-                    break;
-                case GameVersion.FR:
-                case GameVersion.LG:
-                    if (SaveFormat == 3)
-                        return MetGen3.OrderByDescending(loc => loc.Value > 87 && loc.Value < 197).ToList(); // Celadon Dept.
-                    break;
-
-                case GameVersion.D:
-                case GameVersion.P:
-                    if (SaveFormat == 4 || (SaveFormat >= 5 && egg))
-                        return MetGen4.Take(4).Concat(MetGen4.Skip(4).OrderByDescending(loc => loc.Value <= 111)).ToList(); // Battle Park
-                    break;
-
-                case GameVersion.Pt:
-                    if (SaveFormat == 4 || (SaveFormat >= 5 && egg))
-                        return MetGen4.Take(4).Concat(MetGen4.Skip(4).OrderByDescending(loc => loc.Value <= 125)).ToList(); // Rock Peak Ruins
-                    break;
-
-                case GameVersion.HG:
-                case GameVersion.SS:
-                    if (SaveFormat == 4 || (SaveFormat >= 5 && egg))
-                        return MetGen4.Take(4).Concat(MetGen4.Skip(4).OrderByDescending(loc => loc.Value > 125 && loc.Value < 234)).ToList(); // Celadon Dept.
-                    break;
-
-                case GameVersion.B:
-                case GameVersion.W:
-                    return MetGen5;
-
-                case GameVersion.B2:
-                case GameVersion.W2:
-                    return MetGen5.Take(3).Concat(MetGen5.Skip(3).OrderByDescending(loc => loc.Value <= 116)).ToList(); // Abyssal Ruins
-
-                case GameVersion.X:
-                case GameVersion.Y:
-                    return MetGen6.Take(3).Concat(MetGen6.Skip(3).OrderByDescending(loc => loc.Value <= 168)).ToList(); // Unknown Dungeon
-
-                case GameVersion.OR:
-                case GameVersion.AS:
-                    return MetGen6.Take(3).Concat(MetGen6.Skip(3).OrderByDescending(loc => loc.Value > 168 && loc.Value <= 354)).ToList(); // Secret Base
-
-                case GameVersion.SN:
-                case GameVersion.MN:
-                    return MetGen7.Take(3).Concat(MetGen7.Skip(3).OrderByDescending(loc => loc.Value < 200)).ToList(); // Outer Cape
-
-                case GameVersion.US:
-                case GameVersion.UM:
-
-                case GameVersion.RD:
-                case GameVersion.BU:
-                case GameVersion.GN:
-                case GameVersion.YW:
-
-                case GameVersion.GD:
-                case GameVersion.SV:
-                case GameVersion.C:
-                    return MetGen7.Take(3).Concat(MetGen7.Skip(3).OrderByDescending(loc => loc.Value < 234)).ToList(); // Dividing Peak Tunnel
-
-                case GameVersion.GP:
-                case GameVersion.GE:
-                case GameVersion.GO:
-                    return MetGen7GG.Take(3).Concat(MetGen7GG.Skip(3).OrderByDescending(loc => loc.Value <= 54)).ToList(); // Pokémon League
-            }
-
-            // Currently on a future game, return corresponding list for generation
-            if (Version <= GameVersion.CXD && SaveFormat == 4)
-            {
-                return MetGen4.Where(loc => loc.Value == Legal.Transfer3) // Pal Park to front
-                   .Concat(MetGen4.Take(4))
-                   .Concat(MetGen4.Skip(4).Where(loc => loc.Value != Legal.Transfer3)).ToList();
-            }
-
-            if (Version < GameVersion.X && SaveFormat >= 5) // PokéTransfer to front
-            {
-                return MetGen5.Where(loc => loc.Value == Legal.Transfer4)
-                   .Concat(MetGen5.Take(3))
-                   .Concat(MetGen5.Skip(3).Where(loc => loc.Value != Legal.Transfer4)).ToList();
-            }
-
-            return MetGen6;
+                0 => metBW2_00000,
+                3 => metBW2_30000,
+                4 => metBW2_40000,
+                6 => metBW2_60000,
+                _ => Array.Empty<string>()
+            };
         }
 
-        public static IReadOnlyList<ComboItem> LanguageDataSource(int gen)
+        public IReadOnlyList<string> GetLocationNames6(int bankID)
         {
-            var languages = LanguageList.ToList();
-            if (gen == 3)
-                languages.RemoveAll(l => l.Value >= (int)LanguageID.Korean);
-            else if (gen < 7)
-                languages.RemoveAll(l => l.Value > (int)LanguageID.Korean);
-            return languages;
+            return bankID switch
+            {
+                0 => metXY_00000,
+                3 => metXY_30000,
+                4 => metXY_40000,
+                6 => metXY_60000,
+                _ => Array.Empty<string>()
+            };
         }
 
-        public IReadOnlyList<ComboItem> GetAbilityDataSource(IEnumerable<int> abils)
+        public IReadOnlyList<string> GetLocationNames7(int bankID)
         {
-            return abils.Select(GetItem).ToList();
-            ComboItem GetItem(int ability, int index) => new ComboItem
+            return bankID switch
             {
-                Value = ability,
-                Text = abilitylist[ability] + abilIdentifier[index]
+                0 => metSM_00000,
+                3 => metSM_30000,
+                4 => metSM_40000,
+                6 => metSM_60000,
+                _ => Array.Empty<string>()
+            };
+        }
+
+        public IReadOnlyList<string> GetLocationNames7GG(int bankID)
+        {
+            return bankID switch
+            {
+                0 => metGG_00000,
+                3 => metGG_30000,
+                4 => metGG_40000,
+                6 => metGG_60000,
+                _ => Array.Empty<string>()
+            };
+        }
+
+        public IReadOnlyList<string> GetLocationNames8(int bankID)
+        {
+            return bankID switch
+            {
+                0 => metSWSH_00000,
+                3 => metSWSH_30000,
+                4 => metSWSH_40000,
+                6 => metSWSH_60000,
+                _ => Array.Empty<string>()
             };
         }
     }

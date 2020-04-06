@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Windows.Forms;
 using PKHeX.Core;
+using PKHeX.Drawing;
 
 namespace PKHeX.WinForms
 {
@@ -21,46 +22,16 @@ namespace PKHeX.WinForms
 
             Array.Copy(SAV.Data, SAV.HoF, data, 0, data.Length); //Copy HoF section of save into Data
             Setup();
-            editor_spec = new Control[]{
-                GB_OT,
-                GB_CurrentMoves,
-                CB_Species,
-                CB_HeldItem,
-                TB_EC,
-                TB_VN,
-                CAL_MetDate,
-                CHK_Nicknamed,
-                CHK_Shiny,
-                L_PartyNum,
-                L_Victory,
-                L_Shiny,
-                L_Level,
-                Label_TID,
-                Label_Form,
-                Label_Gender,
-                Label_HeldItem,
-                Label_OT,
-                Label_TID,
-                Label_SID,
-                Label_Species,
-                TB_Level,
-                NUP_PartyIndex,
-                Label_EncryptionConstant,
-                Label_MetDate,
-            };
             LB_DataEntry.SelectedIndex = 0;
-            NUP_PartyIndex_ValueChanged(null, null);
-            try { TB_Nickname.Font = FontUtil.GetPKXFont(11); }
-            catch (Exception e) { WinFormsUtil.Alert("Font loading failed...", e.ToString()); }
+            NUP_PartyIndex_ValueChanged(null, EventArgs.Empty);
+            TB_Nickname.Font = TB_OT.Font = FontUtil.GetPKXFont();
             editing = true;
         }
 
         private bool editing;
 
-        private readonly string[] gendersymbols = Main.GenderSymbols;
+        private readonly IReadOnlyList<string> gendersymbols = Main.GenderSymbols;
         private readonly byte[] data = new byte[0x1B40];
-
-        private readonly Control[] editor_spec;
 
         private void Setup()
         {
@@ -119,16 +90,14 @@ namespace PKHeX.WinForms
             if (day == 0)
             {
                 s.Add("No records in this slot.");
-                foreach (Control t in editor_spec)
-                    t.Enabled = false;
+                groupBox1.Enabled = false;
 
                 editing = false;
                 NUP_PartyIndex_ValueChanged(sender, e);
             }
             else
             {
-                foreach (Control t in editor_spec)
-                    t.Enabled = true;
+                groupBox1.Enabled = true;
                 var moncount = AddEntries(offset, s, year, month, day);
 
                 if (sender != null)
@@ -189,19 +158,19 @@ namespace PKHeX.WinForms
             string nickname = Util.TrimFromZero(Encoding.Unicode.GetString(data, offset + 0x18, 24));
             string OTname = Util.TrimFromZero(Encoding.Unicode.GetString(data, offset + 0x30, 24));
 
-            string genderstr = gendersymbols[gender];
+            string genderstr = gendersymbols[(int)gender];
             string shinystr = shiny == 1 ? "Yes" : "No";
 
-            string[] movelist = GameInfo.Strings.movelist;
+            var str = GameInfo.Strings;
             s.Add($"Name: {nickname}");
-            s.Add($" ({GameInfo.Strings.specieslist[species]} - {genderstr})");
+            s.Add($" ({str.Species[species]} - {genderstr})");
             s.Add($"Level: {level}");
             s.Add($"Shiny: {shinystr}");
-            s.Add($"Held Item: {GameInfo.Strings.itemlist[helditem]}");
-            s.Add($"Move 1: {movelist[move1]}");
-            s.Add($"Move 2: {movelist[move2]}");
-            s.Add($"Move 3: {movelist[move3]}");
-            s.Add($"Move 4: {movelist[move4]}");
+            s.Add($"Held Item: {str.Item[helditem]}");
+            s.Add($"Move 1: {str.Move[move1]}");
+            s.Add($"Move 2: {str.Move[move2]}");
+            s.Add($"Move 3: {str.Move[move3]}");
+            s.Add($"Move 4: {str.Move[move4]}");
             s.Add($"OT: {OTname} ({TID}/{SID})");
             s.Add(string.Empty);
         }
@@ -212,7 +181,8 @@ namespace PKHeX.WinForms
             int index = LB_DataEntry.SelectedIndex;
             int offset = (index * 0x1B4) + ((Convert.ToInt32(NUP_PartyIndex.Value)-1) * 0x48);
 
-            if (offset < 0) return;
+            if (offset < 0)
+                return;
 
             int species = BitConverter.ToUInt16(data, offset + 0x00);
             CB_Species.SelectedValue = species;
@@ -253,7 +223,7 @@ namespace PKHeX.WinForms
             CB_Form.SelectedIndex = (int)form;
             SetGenderLabel((int)gender);
             UpdateNickname(sender, e);
-            bpkx.Image = SpriteUtil.GetSprite(species, (int)form, (int)gender, item, false, shiny == 1);
+            bpkx.Image = SpriteUtil.GetSprite(species, (int)form, (int)gender, 0, item, false, shiny == 1);
             editing = true;
         }
 
@@ -315,8 +285,12 @@ namespace PKHeX.WinForms
             vnd |= rawvnd & 0x80000000;
             Array.Copy(BitConverter.GetBytes(vnd), 0, data, offset + 0x1B0, 4);
 
-            bpkx.Image = SpriteUtil.GetSprite(WinFormsUtil.GetIndex(CB_Species), CB_Form.SelectedIndex & 0x1F, PKX.GetGenderFromString(Label_Gender.Text), WinFormsUtil.GetIndex(CB_HeldItem), false, CHK_Shiny.Checked);
-            DisplayEntry(null, null); // refresh text view
+            var spec = WinFormsUtil.GetIndex(CB_Species);
+            var form = CB_Form.SelectedIndex & 0x1F;
+            var gender = PKX.GetGenderFromString(Label_Gender.Text);
+            var item = WinFormsUtil.GetIndex(CB_HeldItem);
+            bpkx.Image = SpriteUtil.GetSprite(spec, form, gender, 0, item, false, CHK_Shiny.Checked);
+            DisplayEntry(null, EventArgs.Empty); // refresh text view
         }
 
         private void Validate_TextBoxes()
@@ -333,23 +307,19 @@ namespace PKHeX.WinForms
             {
                 // Fetch Current Species and set it as Nickname Text
                 int species = WinFormsUtil.GetIndex(CB_Species);
-                if (species == 0 || species > 721)
+                if (species == 0 || species > (int)Species.Volcanion)
                 {
                     TB_Nickname.Text = string.Empty;
                 }
                 else
                 {
-                    try
-                    {
-                        // get language
-                        TB_Nickname.Text = PKX.GetSpeciesNameGeneration(species, SAV.Language, 6);
-                    }
-                    catch { }
+                    // get language
+                    TB_Nickname.Text = SpeciesName.GetSpeciesNameGeneration(species, SAV.Language, 6);
                 }
             }
             TB_Nickname.ReadOnly = !CHK_Nicknamed.Checked;
 
-            Write_Entry(null, null);
+            Write_Entry(null, EventArgs.Empty);
         }
 
         private void SetForms()
@@ -359,22 +329,27 @@ namespace PKHeX.WinForms
             CB_Form.Enabled = CB_Form.Visible = hasForms;
 
             CB_Form.InitializeBinding();
-            CB_Form.DataSource = PKX.GetFormList(species, GameInfo.Strings.types, GameInfo.Strings.forms, Main.GenderSymbols, SAV.Generation).ToList();
+            CB_Form.DataSource = FormConverter.GetFormList(species, GameInfo.Strings.types, GameInfo.Strings.forms, Main.GenderSymbols, SAV.Generation);
         }
 
         private void UpdateSpecies(object sender, EventArgs e)
         {
             SetForms();
-            UpdateNickname(null, null);
+            UpdateNickname(null, EventArgs.Empty);
         }
 
         private void UpdateShiny(object sender, EventArgs e)
         {
             if (!editing)
                 return; //Don't do writing until loaded
-            bpkx.Image = SpriteUtil.GetSprite(WinFormsUtil.GetIndex(CB_Species), CB_Form.SelectedIndex & 0x1F, PKX.GetGenderFromString(Label_Gender.Text), WinFormsUtil.GetIndex(CB_HeldItem), false, CHK_Shiny.Checked);
 
-            Write_Entry(null, null);
+            var spec = WinFormsUtil.GetIndex(CB_Species);
+            var form = CB_Form.SelectedIndex & 0x1F;
+            var gender = PKX.GetGenderFromString(Label_Gender.Text);
+            var item = WinFormsUtil.GetIndex(CB_HeldItem);
+            bpkx.Image = SpriteUtil.GetSprite(spec, form, gender, 0, item, false, CHK_Shiny.Checked);
+
+            Write_Entry(null, EventArgs.Empty);
         }
 
         private void UpdateGender(object sender, EventArgs e)
@@ -403,10 +378,10 @@ namespace PKHeX.WinForms
                     CB_Form.SelectedIndex = 0;
             }
 
-            if (species == 668)
+            if (species == (int)Species.Pyroar)
                 CB_Form.SelectedIndex = PKX.GetGenderFromString(Label_Gender.Text);
 
-            Write_Entry(null, null);
+            Write_Entry(null, EventArgs.Empty);
         }
 
         private void SetGenderLabel(int gender)
@@ -418,12 +393,12 @@ namespace PKHeX.WinForms
             else
                 Label_Gender.Text = gendersymbols[2];    // Genderless
 
-            Write_Entry(null, null);
+            Write_Entry(null, EventArgs.Empty);
         }
 
         private void B_CopyText_Click(object sender, EventArgs e)
         {
-            Clipboard.SetText(RTB.Text);
+            WinFormsUtil.SetClipboardText(RTB.Text);
         }
 
         private void B_Delete_Click(object sender, EventArgs e)

@@ -12,7 +12,7 @@ namespace PKHeX.WinForms.Properties {
     
     
     [global::System.Runtime.CompilerServices.CompilerGeneratedAttribute()]
-    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("Microsoft.VisualStudio.Editors.SettingsDesigner.SettingsSingleFileGenerator", "15.8.0.0")]
+    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("Microsoft.VisualStudio.Editors.SettingsDesigner.SettingsSingleFileGenerator", "16.4.0.0")]
     internal sealed partial class Settings : global::System.Configuration.ApplicationSettingsBase {
         
         private static Settings defaultInstance = ((Settings)(global::System.Configuration.ApplicationSettingsBase.Synchronized(new Settings())));
@@ -217,13 +217,133 @@ namespace PKHeX.WinForms.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("GP")]
+        [global::System.Configuration.DefaultSettingValueAttribute("SW")]
         public global::PKHeX.Core.GameVersion DefaultSaveVersion {
             get {
                 return ((global::PKHeX.Core.GameVersion)(this["DefaultSaveVersion"]));
             }
             set {
                 this["DefaultSaveVersion"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool DetectSaveOnStartup {
+            get {
+                return ((bool)(this["DetectSaveOnStartup"]));
+            }
+            set {
+                this["DetectSaveOnStartup"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool BAKEnabled {
+            get {
+                return ((bool)(this["BAKEnabled"]));
+            }
+            set {
+                this["BAKEnabled"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool AllowGen1Tradeback {
+            get {
+                return ((bool)(this["AllowGen1Tradeback"]));
+            }
+            set {
+                this["AllowGen1Tradeback"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("False")]
+        public bool ForceHaXOnLaunch {
+            get {
+                return ((bool)(this["ForceHaXOnLaunch"]));
+            }
+            set {
+                this["ForceHaXOnLaunch"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("False")]
+        public bool IgnoreLegalPopup {
+            get {
+                return ((bool)(this["IgnoreLegalPopup"]));
+            }
+            set {
+                this["IgnoreLegalPopup"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        public string Draw {
+            get {
+                return ((string)(this["Draw"]));
+            }
+            set {
+                this["Draw"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool PlaySoundSAVLoad {
+            get {
+                return ((bool)(this["PlaySoundSAVLoad"]));
+            }
+            set {
+                this["PlaySoundSAVLoad"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool PlaySoundLegalityCheck {
+            get {
+                return ((bool)(this["PlaySoundLegalityCheck"]));
+            }
+            set {
+                this["PlaySoundLegalityCheck"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("False")]
+        public bool FlagMissingTracker {
+            get {
+                return ((bool)(this["FlagMissingTracker"]));
+            }
+            set {
+                this["FlagMissingTracker"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("False")]
+        public bool ApplyNature {
+            get {
+                return ((bool)(this["ApplyNature"]));
+            }
+            set {
+                this["ApplyNature"] = value;
             }
         }
     }

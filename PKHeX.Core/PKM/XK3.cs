@@ -1,11 +1,12 @@
 ﻿using System;
+using System.Collections.Generic;
 
 namespace PKHeX.Core
 {
     /// <summary> Generation 3 <see cref="PKM"/> format, exclusively for Pokémon XD. </summary>
-    public sealed class XK3 : _K3, IShadowPKM
+    public sealed class XK3 : G3PKM, IShadowPKM
     {
-        private static readonly byte[] Unused =
+        private static readonly ushort[] Unused =
         {
             0x0A, 0x0B, 0x0C, 0x0D, 0x1E, 0x1F,
             0x2A, 0x2B,
@@ -13,32 +14,27 @@ namespace PKHeX.Core
             0x7E, 0x7F
         };
 
-        public override byte[] ExtraBytes => Unused;
+        public override IReadOnlyList<ushort> ExtraBytes => Unused;
 
-        public override int SIZE_PARTY => PKX.SIZE_3XSTORED;
-        public override int SIZE_STORED => PKX.SIZE_3XSTORED;
+        public override int SIZE_PARTY => PokeCrypto.SIZE_3XSTORED;
+        public override int SIZE_STORED => PokeCrypto.SIZE_3XSTORED;
         public override int Format => 3;
         public override PersonalInfo PersonalInfo => PersonalTable.RS[Species];
-
-        public XK3(byte[] decryptedData = null, string ident = null)
-        {
-            Data = decryptedData ?? new byte[SIZE_PARTY];
-            Identifier = ident;
-        }
-
+        public override byte[] Data { get; }
+        public XK3(byte[] data) => Data = data;
         public XK3() => Data = new byte[SIZE_PARTY];
-        public override PKM Clone() => new XK3((byte[])Data.Clone(), Identifier) {Purification = Purification};
+        public override PKM Clone() => new XK3((byte[])Data.Clone()){Identifier = Identifier, Purification = Purification};
 
-        private string GetString(int Offset, int Count) => StringConverter.GetBEString3(Data, Offset, Count);
-        private byte[] SetString(string value, int maxLength) => StringConverter.SetBEString3(value, maxLength);
+        private string GetString(int Offset, int Count) => StringConverter3.GetBEString3(Data, Offset, Count);
+        private byte[] SetString(string value, int maxLength) => StringConverter3.SetBEString3(value, maxLength);
 
         // Trash Bytes
-        public override byte[] Nickname_Trash { get => GetData(0x4E, 20); set { if (value?.Length == 20) value.CopyTo(Data, 0x4E); } }
-        public override byte[] OT_Trash { get => GetData(0x38, 20); set { if (value?.Length == 20) value.CopyTo(Data, 0x38); } }
+        public override byte[] Nickname_Trash { get => GetData(0x4E, 20); set { if (value.Length == 20) value.CopyTo(Data, 0x4E); } }
+        public override byte[] OT_Trash { get => GetData(0x38, 20); set { if (value.Length == 20) value.CopyTo(Data, 0x38); } }
 
         // Silly Attributes
         public override ushort Sanity { get => 0; set { } } // valid flag set in pkm structure.
-        public override ushort Checksum { get => SaveUtil.CRC16_CCITT(Data); set { } } // totally false, just a way to get a 'random' ident for the pkm.
+        public override ushort Checksum { get => Checksums.CRC16_CCITT(Data); set { } } // totally false, just a way to get a 'random' ident for the pkm.
         public override bool ChecksumValid => Valid;
 
         public override int Species { get => SpeciesConverter.GetG4Species(BigEndian.ToUInt16(Data, 0x00)); set => BigEndian.GetBytes((ushort)SpeciesConverter.GetG3Species(value)).CopyTo(Data, 0x00); }
@@ -59,14 +55,14 @@ namespace PKHeX.Core
         public override int PKRS_Days { get => Math.Max((sbyte)Data[0x15], (sbyte)0); set => Data[0x15] = (byte)(value == 0 ? 0xFF : value & 0xF); }
         // 0x16-0x1C Battle Related
         private int XDPKMFLAGS { get => Data[0x1D]; set => Data[0x1D] = (byte)value; }
-        public bool UnusedFlag0     { get => (XDPKMFLAGS & (1 << 0)) == 1 << 0; set => XDPKMFLAGS = (XDPKMFLAGS & ~(1 << 0)) | (value ? 1 << 0 : 0); }
-        public bool UnusedFlag1     { get => (XDPKMFLAGS & (1 << 1)) == 1 << 1; set => XDPKMFLAGS = (XDPKMFLAGS & ~(1 << 1)) | (value ? 1 << 1 : 0); }
-        public bool CapturedFlag    { get => (XDPKMFLAGS & (1 << 2)) == 1 << 2; set => XDPKMFLAGS = (XDPKMFLAGS & ~(1 << 2)) | (value ? 1 << 2 : 0); }
-        public bool UnusedFlag3     { get => (XDPKMFLAGS & (1 << 3)) == 1 << 3; set => XDPKMFLAGS = (XDPKMFLAGS & ~(1 << 3)) | (value ? 1 << 3 : 0); }
-        public bool BlockTrades     { get => (XDPKMFLAGS & (1 << 4)) == 1 << 4; set => XDPKMFLAGS = (XDPKMFLAGS & ~(1 << 4)) | (value ? 1 << 4 : 0); }
-        public override bool Valid  { get => (XDPKMFLAGS & (1 << 5)) == 0; set => XDPKMFLAGS = (XDPKMFLAGS & ~(1 << 5)) | (value ? 0 : 1 << 5); } // invalid flag
-        public override bool AbilityBit { get => 1 << ((XDPKMFLAGS >> 6) & 1) == 1; set => XDPKMFLAGS = (XDPKMFLAGS & ~(1 << 6)) | ((value ? 1 : 0) << 6); }
-        public override bool IsEgg  { get => (XDPKMFLAGS & (1 << 7)) == 1 << 7; set => XDPKMFLAGS = (XDPKMFLAGS & ~(1 << 7)) | (value ? 1 << 7 : 0); }
+        public bool UnusedFlag0         { get => (XDPKMFLAGS & (1 << 0)) == 1 << 0; set => XDPKMFLAGS = (XDPKMFLAGS & ~(1 << 0)) | (value ? 1 << 0 : 0); }
+        public bool UnusedFlag1         { get => (XDPKMFLAGS & (1 << 1)) == 1 << 1; set => XDPKMFLAGS = (XDPKMFLAGS & ~(1 << 1)) | (value ? 1 << 1 : 0); }
+        public bool CapturedFlag        { get => (XDPKMFLAGS & (1 << 2)) == 1 << 2; set => XDPKMFLAGS = (XDPKMFLAGS & ~(1 << 2)) | (value ? 1 << 2 : 0); }
+        public bool UnusedFlag3         { get => (XDPKMFLAGS & (1 << 3)) == 1 << 3; set => XDPKMFLAGS = (XDPKMFLAGS & ~(1 << 3)) | (value ? 1 << 3 : 0); }
+        public bool BlockTrades         { get => (XDPKMFLAGS & (1 << 4)) == 1 << 4; set => XDPKMFLAGS = (XDPKMFLAGS & ~(1 << 4)) | (value ? 1 << 4 : 0); }
+        public override bool Valid      { get => (XDPKMFLAGS & (1 << 5)) == 0;      set => XDPKMFLAGS = (XDPKMFLAGS & ~(1 << 5)) | (value ? 0 : 1 << 5); } // invalid flag
+        public override bool AbilityBit { get => (XDPKMFLAGS & (1 << 6)) == 1 << 6; set => XDPKMFLAGS = (XDPKMFLAGS & ~(1 << 6)) | (value ? 1 << 6 : 0); }
+        public override bool IsEgg      { get => (XDPKMFLAGS & (1 << 7)) == 1 << 7; set => XDPKMFLAGS = (XDPKMFLAGS & ~(1 << 7)) | (value ? 1 << 7 : 0); }
         // 0x1E-0x1F Unknown
         public override uint EXP { get => BigEndian.ToUInt32(Data, 0x20); set => BigEndian.GetBytes(value).CopyTo(Data, 0x20); }
         public override int SID { get => BigEndian.ToUInt16(Data, 0x24); set => BigEndian.GetBytes((ushort)value).CopyTo(Data, 0x24); }
@@ -74,13 +70,29 @@ namespace PKHeX.Core
         public override uint PID { get => BigEndian.ToUInt32(Data, 0x28); set => BigEndian.GetBytes(value).CopyTo(Data, 0x28); }
         // 0x2A-0x2B Unknown
         // 0x2C-0x2F Battle Related
-        public override bool FatefulEncounter { get => Data[0x30] == 1; set => Data[0x30] = (byte)(value ? 1 : 0); }
+        public bool Obedient { get => Data[0x30] == 1; set => Data[0x30] = (byte)(value ? 1 : 0); }
         // 0x31-0x32 Unknown
-        public new int EncounterType { get => Data[0x33]; set => Data[0x33] = (byte)value; }
-        public override int Version { get => SaveUtil.GetG3VersionID(Data[0x34]); set => Data[0x34] = (byte)SaveUtil.GetCXDVersionID(value); }
+        public int EncounterInfo { get => Data[0x33]; set => Data[0x33] = (byte)value; }
+
+        public override bool FatefulEncounter
+        {
+            get => EncounterInfo != 0 || Obedient;
+            set
+            {
+                if (EncounterInfo != 0)
+                {
+                    if (!value)
+                        EncounterInfo = 0;
+                    return;
+                }
+                EncounterInfo = (byte) ((EncounterInfo & ~(1 << 0)) | (value ? 1 << 0 : 0));
+            }
+        }
+
+        public override int Version { get => GetGBAVersionID(Data[0x34]); set => Data[0x34] = GetGCVersionID(value); }
         public int CurrentRegion { get => Data[0x35]; set => Data[0x35] = (byte)value; }
         public int OriginalRegion { get => Data[0x36]; set => Data[0x36] = (byte)value; }
-        public override int Language { get => PKX.GetMainLangIDfromGC(Data[0x37]); set => Data[0x37] = PKX.GetGCLangIDfromMain((byte)value); }
+        public override int Language { get => Core.Language.GetMainLangIDfromGC(Data[0x37]); set => Data[0x37] = Core.Language.GetGCLangIDfromMain((byte)value); }
         public override string OT_Name { get => GetString(0x38, 20); set => SetString(value, 10).CopyTo(Data, 0x38); } // +2 terminator
         public override string Nickname { get => GetString(0x4E, 20); set { SetString(value, 10).CopyTo(Data, 0x4E); Nickname2 = value; } } // +2 terminator
         private string Nickname2 { get => GetString(0x64, 20); set => SetString(value, 10).CopyTo(Data, 0x64); } // +2 terminator
@@ -187,6 +199,9 @@ namespace PKHeX.Core
 
         // Purification information is stored in the save file and accessed based on the Shadow ID.
         public int Purification { get; set; }
+
+        // stored in the data, offset undocumented
+        public override int Status_Condition { get; set; }
 
         protected override byte[] Encrypt()
         {

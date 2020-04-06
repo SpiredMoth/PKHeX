@@ -1,11 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.IO;
 using System.Linq;
 using System.Windows.Forms;
 using PKHeX.Core;
-using static PKHeX.Core.MessageStrings;
 
 namespace PKHeX.WinForms
 {
@@ -21,7 +19,10 @@ namespace PKHeX.WinForms
 
             WinFormsUtil.TranslateInterface(this, Main.CurrentLanguage);
 
-            SAV = ((SAV7b) sav).EventWork;
+            if (sav is SAV7b s7b)
+                SAV = s7b.Blocks.EventWork;
+            //else if (sav is SAV8SWSH s8ss)
+            //    SAV = s8ss.Blocks.EventWork;
             Origin = sav;
 
             DragEnter += Main_DragEnter;
@@ -134,7 +135,7 @@ namespace PKHeX.WinForms
                         DropDownWidth = Width + 100
                     };
                     cb.InitializeBinding();
-                    cb.DataSource = new BindingSource(f.Options.Select(z => new ComboItem{Text = z.Text, Value = z.Value}).ToList(), null);
+                    cb.DataSource = new BindingSource(f.Options.Select(z => new ComboItem(z.Text, z.Value)).ToList(), null);
                     cb.SelectedValue = f.Value;
                     if (cb.SelectedIndex < 0)
                         cb.SelectedIndex = 0;
@@ -232,7 +233,7 @@ namespace PKHeX.WinForms
 
         private void OpenSAV(object sender, EventArgs e)
         {
-            OpenFileDialog ofd = new OpenFileDialog();
+            using var ofd = new OpenFileDialog();
             if (ofd.ShowDialog() == DialogResult.OK)
                 LoadSAV(sender, ofd.FileName);
         }
@@ -249,13 +250,14 @@ namespace PKHeX.WinForms
         private static string[] GetStringList(GameVersion game, string type)
         {
             var gamePrefix = GetGameFilePrefix(game);
-            return GameInfo.GetStrings(gamePrefix, GameInfo.CurrentLanguage, type);
+            return GameLanguage.GetStrings(gamePrefix, GameInfo.CurrentLanguage, type);
         }
 
         private static string GetGameFilePrefix(GameVersion game)
         {
             switch (game)
             {
+                case GameVersion.SW: case GameVersion.SH: case GameVersion.SWSH: return "swsh";
                 case GameVersion.GP: case GameVersion.GE: case GameVersion.GG: return "gg";
                 case GameVersion.X: case GameVersion.Y: return "xy";
                 case GameVersion.OR: case GameVersion.AS: return "oras";
@@ -276,58 +278,14 @@ namespace PKHeX.WinForms
 
         private void DiffSaves()
         {
-            if (!File.Exists(TB_OldSAV.Text)) { WinFormsUtil.Alert(string.Format(MsgSaveNumberInvalid, 1)); return; }
-            if (!File.Exists(TB_NewSAV.Text)) { WinFormsUtil.Alert(string.Format(MsgSaveNumberInvalid, 2)); return; }
-            if (new FileInfo(TB_OldSAV.Text).Length > 0x100000) { WinFormsUtil.Alert(string.Format(MsgSaveNumberInvalid, 1)); return; }
-            if (new FileInfo(TB_NewSAV.Text).Length > 0x100000) { WinFormsUtil.Alert(string.Format(MsgSaveNumberInvalid, 2)); return; }
-
-            var s1 = SaveUtil.GetVariantSAV(TB_OldSAV.Text);
-            var s2 = SaveUtil.GetVariantSAV(TB_NewSAV.Text);
-            if (s1 == null) { WinFormsUtil.Alert(string.Format(MsgSaveNumberInvalid, 1)); return; }
-            if (s2 == null) { WinFormsUtil.Alert(string.Format(MsgSaveNumberInvalid, 2)); return; }
-
-            if (s1.GetType() != s2.GetType()) { WinFormsUtil.Alert(MsgSaveDifferentTypes, $"S1: {s1.GetType().Name}", $"S2: {s2.GetType().Name}"); return; }
-            if (s1.Version != s2.Version) { WinFormsUtil.Alert(MsgSaveDifferentVersions, $"S1: {s1.Version}", $"S2: {s2.Version}"); return; }
-
-            EventWorkUtil.DiffSavesFlag(((SAV7b)s1).EventWork, ((SAV7b)s2).EventWork, out var on, out var off);
-            EventWorkUtil.DiffSavesWork(((SAV7b)s1).EventWork, ((SAV7b)s2).EventWork, out var changed, out var changes);
-
-            var ew = ((SAV7b) s1).EventWork;
-
-            var fOn = on.Select(z => new {Type = ew.GetFlagType(z, out var subIndex), Index = subIndex, Raw = z})
-                .Select(z => $"{z.Raw:0000}\t{true }\t{z.Index:0000}\t{z.Type}").ToArray();
-            var fOff = off.Select(z => new {Type = ew.GetFlagType(z, out var subIndex), Index = subIndex, Raw = z})
-                .Select(z => $"{z.Raw:0000}\t{false}\t{z.Index:0000}\t{z.Type}").ToArray();
-
-            var w = changed.Select((z, i) => new
+            var diff7b = new EventWorkDiff7b(TB_OldSAV.Text, TB_NewSAV.Text);
+            if (diff7b.Message != null)
             {
-                Type = ew.GetWorkType(z, out var subIndex),
-                Index = subIndex,
-                Raw = z,
-                Text = changes[i]
-            }).ToArray();
-            var wt = w.Select(z => $"{z.Raw:000}\t{z.Text}\t{z.Index:000}\t{z.Type}").ToArray();
+                WinFormsUtil.Alert(diff7b.Message);
+                return;
+            }
 
-            var list = new List<string> {"Flags: ON", "========="};
-            list.AddRange(fOn);
-            if (on.Count == 0)
-                list.Add("None.");
-
-            list.Add("");
-            list.Add("Flags: OFF");
-            list.Add("==========");
-            list.AddRange(fOff);
-            if (off.Count == 0)
-                list.Add("None.");
-
-            list.Add("");
-            list.Add("Work:");
-            list.Add("=====");
-            if (changes.Count == 0)
-                list.Add("None.");
-            list.AddRange(wt);
-
-            RTB_Diff.Lines = list.ToArray();
+            RTB_Diff.Lines = diff7b.Summarize().ToArray();
         }
 
         private static void Main_DragEnter(object sender, DragEventArgs e)

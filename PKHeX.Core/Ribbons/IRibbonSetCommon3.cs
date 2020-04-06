@@ -1,7 +1,7 @@
 ﻿namespace PKHeX.Core
 {
     /// <summary> Common Ribbons introduced in Generation 3 </summary>
-    internal interface IRibbonSetCommon3
+    public interface IRibbonSetCommon3
     {
         bool RibbonChampionG3Hoenn { get; set; }
         bool RibbonArtist { get; set; }
@@ -17,8 +17,6 @@
 
         internal static bool[] RibbonBits(this IRibbonSetCommon3 set)
         {
-            if (set == null)
-                return new bool[3];
             return new[]
             {
                 set.RibbonChampionG3Hoenn,

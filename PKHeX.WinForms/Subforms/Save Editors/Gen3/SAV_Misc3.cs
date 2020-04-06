@@ -17,6 +17,8 @@ namespace PKHeX.WinForms
             WinFormsUtil.TranslateInterface(this, Main.CurrentLanguage);
             SAV = (SAV3)(Origin = sav).Clone();
 
+            LoadRecords();
+
             if (SAV.FRLG || SAV.E)
                 ReadJoyful();
             else
@@ -46,10 +48,9 @@ namespace PKHeX.WinForms
                                      346,347,341,342,343,373,374,375,381,325,395,396,397,398,399,400,
                      401,402,403,407,408,404,405,406,409,410
                 };
-                var speciesList = GameInfo.SpeciesDataSource.Where(v => v.Value <= SAV.MaxSpeciesID).Select(v => new ComboItem {
-                    Text = v.Text,
-                    Value = v.Value < 252 ? v.Value : HoennListMixed[v.Value - 252],
-                }).ToList();
+                var speciesList = GameInfo.SpeciesDataSource.Where(v => v.Value <= SAV.MaxSpeciesID).Select(v =>
+                    new ComboItem (v.Text, v.Value < 252 ? v.Value : HoennListMixed[v.Value - 252])
+                ).ToList();
                 int ofsTCM = SAV.GetBlockOffset(2) + 0x106;
                 for (int i = 0; i < cba.Length; i++)
                 {
@@ -90,7 +91,7 @@ namespace PKHeX.WinForms
                 SAV.BP = (ushort)NUD_BP.Value;
             SAV.Coin = (ushort)NUD_Coins.Value;
 
-            Origin.SetData(SAV.Data, 0);
+            Origin.CopyChangesFrom(SAV);
             Close();
         }
 
@@ -159,8 +160,6 @@ namespace PKHeX.WinForms
                 tickets = tickets.Take(tickets.Length - 1).ToArray(); // remove old sea map
 
             var p = Array.Find(Pouches, z => z.Type == InventoryType.KeyItems);
-            if (p == null)
-                return;
 
             // check for missing tickets
             var missing = tickets.Where(z => !p.Items.Any(item => item.Index == z && item.Count == 1)).ToList();
@@ -209,40 +208,30 @@ namespace PKHeX.WinForms
 
         private void ReadFerry()
         {
-            CHK_Catchable.Checked = IsFerryFlagActive(0x864);
-            CHK_ReachSouthern.Checked = IsFerryFlagActive(0x8B3);
-            CHK_ReachBirth.Checked = IsFerryFlagActive(0x8D5);
-            CHK_ReachFaraway.Checked = IsFerryFlagActive(0x8D6);
-            CHK_ReachNavel.Checked = IsFerryFlagActive(0x8E0);
-            CHK_ReachBF.Checked = IsFerryFlagActive(0x1D0);
-            CHK_InitialSouthern.Checked = IsFerryFlagActive(0x1AE);
-            CHK_InitialBirth.Checked = IsFerryFlagActive(0x1AF);
-            CHK_InitialFaraway.Checked = IsFerryFlagActive(0x1B0);
-            CHK_InitialNavel.Checked = IsFerryFlagActive(0x1DB);
-        }
-
-        private bool IsFerryFlagActive(int n)
-        {
-            return SAV.GetEventFlag(n);
-        }
-
-        private void SetFerryFlagFromNum(int n, bool b)
-        {
-            SAV.SetEventFlag(n, b);
+            CHK_Catchable.Checked       = SAV.GetEventFlag(0x864);
+            CHK_ReachSouthern.Checked   = SAV.GetEventFlag(0x8B3);
+            CHK_ReachBirth.Checked      = SAV.GetEventFlag(0x8D5);
+            CHK_ReachFaraway.Checked    = SAV.GetEventFlag(0x8D6);
+            CHK_ReachNavel.Checked      = SAV.GetEventFlag(0x8E0);
+            CHK_ReachBF.Checked         = SAV.GetEventFlag(0x1D0);
+            CHK_InitialSouthern.Checked = SAV.GetEventFlag(0x1AE);
+            CHK_InitialBirth.Checked    = SAV.GetEventFlag(0x1AF);
+            CHK_InitialFaraway.Checked  = SAV.GetEventFlag(0x1B0);
+            CHK_InitialNavel.Checked    = SAV.GetEventFlag(0x1DB);
         }
 
         private void SaveFerry()
         {
-            SetFerryFlagFromNum(0x864, CHK_Catchable.Checked);
-            SetFerryFlagFromNum(0x8B3, CHK_ReachSouthern.Checked);
-            SetFerryFlagFromNum(0x8D5, CHK_ReachBirth.Checked);
-            SetFerryFlagFromNum(0x8D6, CHK_ReachFaraway.Checked);
-            SetFerryFlagFromNum(0x8E0, CHK_ReachNavel.Checked);
-            SetFerryFlagFromNum(0x1D0, CHK_ReachBF.Checked);
-            SetFerryFlagFromNum(0x1AE, CHK_InitialSouthern.Checked);
-            SetFerryFlagFromNum(0x1AF, CHK_InitialBirth.Checked);
-            SetFerryFlagFromNum(0x1B0, CHK_InitialFaraway.Checked);
-            SetFerryFlagFromNum(0x1DB, CHK_InitialNavel.Checked);
+            SAV.SetEventFlag(0x864, CHK_Catchable.Checked);
+            SAV.SetEventFlag(0x8B3, CHK_ReachSouthern.Checked);
+            SAV.SetEventFlag(0x8D5, CHK_ReachBirth.Checked);
+            SAV.SetEventFlag(0x8D6, CHK_ReachFaraway.Checked);
+            SAV.SetEventFlag(0x8E0, CHK_ReachNavel.Checked);
+            SAV.SetEventFlag(0x1D0, CHK_ReachBF.Checked);
+            SAV.SetEventFlag(0x1AE, CHK_InitialSouthern.Checked);
+            SAV.SetEventFlag(0x1AF, CHK_InitialBirth.Checked);
+            SAV.SetEventFlag(0x1B0, CHK_InitialFaraway.Checked);
+            SAV.SetEventFlag(0x1DB, CHK_InitialNavel.Checked);
         }
         #endregion
 
@@ -264,13 +253,15 @@ namespace PKHeX.WinForms
 
         private void ChangeStat1(object sender, EventArgs e)
         {
-            if (loading) return;
+            if (loading)
+                return;
             int facility = CB_Stats1.SelectedIndex;
-            if (facility < 0 || facility >= BFN.Length) return;
+            if ((uint)facility >= BFN.Length)
+                return;
             editingcont = true;
             CB_Stats2.Items.Clear();
-            foreach (RadioButton r in StatRBA)
-                r.Checked = false;
+            foreach (RadioButton rb in StatRBA)
+                rb.Checked = false;
 
             if (BFT[BFF[facility][1]] == null)
             {
@@ -293,34 +284,43 @@ namespace PKHeX.WinForms
 
         private void ChangeStat(object sender, EventArgs e)
         {
-            if (editingcont) return;
+            if (editingcont)
+                return;
             StatAddrControl(SetValToSav: -2, SetSavToVal: true);
         }
 
         private void StatAddrControl(int SetValToSav = -2, bool SetSavToVal = false)
         {
             int Facility = CB_Stats1.SelectedIndex;
-            if (Facility < 0) return;
+            if (Facility < 0)
+                return;
 
             int BattleType = CB_Stats2.SelectedIndex;
-            if (BFT[BFF[Facility][1]] == null) BattleType = 0;
-            else if (BattleType < 0) return;
-            else if (BattleType >= BFT[BFF[Facility][1]].Length) return;
+            if (BFT[BFF[Facility][1]] == null)
+                BattleType = 0;
+            else if (BattleType < 0)
+                return;
+            else if (BattleType >= BFT[BFF[Facility][1]].Length)
+                return;
 
             int RBi = -1;
             for (int i = 0, j = 0; i < StatRBA.Length; i++)
             {
-                if (!StatRBA[i].Checked) continue;
-                if (++j > 1) return;
+                if (!StatRBA[i].Checked)
+                    continue;
+                if (++j > 1)
+                    return;
                 RBi = i;
             }
-            if (RBi < 0) return;
+            if (RBi < 0)
+                return;
 
             if (SetValToSav >= 0)
             {
                 ushort val = (ushort)StatNUDA[SetValToSav].Value;
                 SetValToSav = Array.IndexOf(BFV[BFF[Facility][0]], SetValToSav);
-                if (SetValToSav < 0) return;
+                if (SetValToSav < 0)
+                    return;
                 if (val > 9999) val = 9999;
                 BitConverter.GetBytes(val).CopyTo(SAV.Data, SAV.GetBlockOffset(0) + BFF[Facility][2 + SetValToSav] + (4 * BattleType) + (2 * RBi));
                 return;
@@ -348,15 +348,18 @@ namespace PKHeX.WinForms
 
         private void ChangeStatVal(object sender, EventArgs e)
         {
-            if (editingval) return;
+            if (editingval)
+                return;
             int n = Array.IndexOf(StatNUDA, sender);
-            if (n < 0) return;
+            if (n < 0)
+                return;
             StatAddrControl(SetValToSav: n, SetSavToVal: false);
         }
 
         private void CHK_Continue_CheckedChanged(object sender, EventArgs e)
         {
-            if (editingval) return;
+            if (editingval)
+                return;
             StatAddrControl(SetValToSav: -1, SetSavToVal: false);
         }
 
@@ -430,7 +433,8 @@ namespace PKHeX.WinForms
         private void BTN_Symbol_Click(object sender, EventArgs e)
         {
             int index = Array.IndexOf(SymbolButtonA, sender);
-            if (index < 0) return;
+            if (index < 0)
+                return;
 
             // 0 (none) | 1 (silver) | 2 (silver) | 3 (gold)
             // bit rotation 00 -> 01 -> 11 -> 00
@@ -441,5 +445,63 @@ namespace PKHeX.WinForms
         }
         #endregion
 
+        private void LoadRecords()
+        {
+            var records = new Record3(SAV);
+            var items = Record3.GetItems(SAV);
+            CB_Record.InitializeBinding();
+            CB_Record.DataSource = items;
+            NUD_RecordValue.Minimum = int.MinValue;
+            NUD_RecordValue.Maximum = int.MaxValue;
+
+            CB_Record.SelectedIndexChanged += (s, e) =>
+            {
+                if (CB_Record.SelectedValue == null)
+                    return;
+
+                var index = WinFormsUtil.GetIndex(CB_Record);
+                LoadRecordID(index);
+                NUD_FameH.Visible = NUD_FameS.Visible = NUD_FameM.Visible = index == 1;
+            };
+            CB_Record.SelectedIndex = 0;
+            LoadRecordID(0);
+            NUD_RecordValue.ValueChanged += (s, e) =>
+            {
+                if (CB_Record.SelectedValue == null)
+                    return;
+
+                var index = WinFormsUtil.GetIndex(CB_Record);
+                var val = (uint) NUD_RecordValue.Value;
+                records.SetRecord(index, val);
+                if (index == 1)
+                    LoadFame(val);
+            };
+            NUD_FameH.ValueChanged += (s, e) => ChangeFame();
+            NUD_FameM.ValueChanged += (s, e) => ChangeFame();
+            NUD_FameS.ValueChanged += (s, e) => ChangeFame();
+
+            void ChangeFame() => records.SetRecord(1, (uint)(NUD_RecordValue.Value = GetFameTime()));
+            void LoadRecordID(int index) => NUD_RecordValue.Value = records.GetRecord(index);
+            void LoadFame(uint val) => SetFameTime(val);
+
+            NUD_BPEarned.Value = SAV.BPEarned;
+            NUD_BPEarned.ValueChanged += (s, e) => SAV.BPEarned = (uint)NUD_BPEarned.Value;
+        }
+
+        public uint GetFameTime()
+        {
+            var hrs = Math.Min(9999, (uint)NUD_FameH.Value);
+            var min = Math.Min(59, (uint)NUD_FameM.Value);
+            var sec = Math.Min(59, (uint)NUD_FameS.Value);
+
+            return (hrs << 16) | (min << 8) | sec;
+        }
+
+        public void SetFameTime(uint time)
+        {
+            NUD_FameH.Value = Math.Min(NUD_FameH.Maximum, time >> 16);
+            NUD_FameM.Value = Math.Min(NUD_FameH.Maximum, (byte)(time >> 8));
+            NUD_FameS.Value = Math.Min(NUD_FameH.Maximum, (byte)time);
+        }
     }
 }

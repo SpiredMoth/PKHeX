@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 
 namespace PKHeX.Core
 {
@@ -12,7 +11,7 @@ namespace PKHeX.Core
 
         public override void GetPouch(byte[] Data)
         {
-            InventoryItem[] items = new InventoryItem[PouchDataSize];
+            var items = new InventoryItem[PouchDataSize];
             if (Type == InventoryType.TMHMs)
             {
                 int slot = 0;
@@ -43,23 +42,13 @@ namespace PKHeX.Core
                     numStored = 0;
                 for (int i = 0; i < numStored; i++)
                 {
-                    switch (Type)
+                    items[i] = Type switch
                     {
-                        case InventoryType.KeyItems:
-                            items[i] = new InventoryItem
-                            {
-                                Index = Data[Offset + i + 1],
-                                Count = 1
-                            };
-                            break;
-                        default:
-                            items[i] = new InventoryItem
-                            {
-                                Index = Data[Offset + (i * 2) + 1],
-                                Count = Data[Offset + (i * 2) + 2]
-                            };
-                            break;
-                    }
+                        InventoryType.KeyItems =>
+                            new InventoryItem {Index = Data[Offset + i + 1], Count = 1},
+                        _ =>
+                            new InventoryItem {Index = Data[Offset + (i * 2) + 1], Count = Data[Offset + (i * 2) + 2]}
+                    };
                 }
                 for (int i = numStored; i < items.Length; i++)
                 {
@@ -77,15 +66,18 @@ namespace PKHeX.Core
         {
             if (Items.Length != PouchDataSize)
                 throw new ArgumentException("Item array length does not match original pouch size.");
+
+            ClearCount0();
+
             switch (Type)
             {
                 case InventoryType.TMHMs:
                     foreach (InventoryItem t in Items)
                     {
-                        if (!LegalItems.Any(it => it == t.Index))
+                        int index = Array.FindIndex(LegalItems, it => t.Index == it);
+                        if (index < 0) // enforce correct pouch
                             continue;
-                        int index = Offset + Array.FindIndex(LegalItems, it => t.Index == it);
-                        Data[index] = (byte)t.Count;
+                        Data[Offset + index] = (byte)t.Count;
                     }
                     break;
                 case InventoryType.KeyItems:

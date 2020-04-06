@@ -14,16 +14,13 @@
         /// <returns>True if operation succeeded, false if no changes made.</returns>
         public bool Execute(IBoxManip manip, int box, bool allBoxes, bool reverse = false)
         {
-            bool usable = manip.Usable?.Invoke(SAV) ?? true;
+            bool usable = manip.Usable.Invoke(SAV);
             if (!usable)
                 return false;
 
-            var param = new BoxManipParam
-            {
-                Reverse = reverse,
-                Start = allBoxes ? 0 : box,
-                Stop = allBoxes ? SAV.BoxCount - 1 : box,
-            };
+            var start = allBoxes ? 0 : box;
+            var stop = allBoxes ? SAV.BoxCount - 1 : box;
+            var param = new BoxManipParam(start, stop, reverse);
 
             var prompt = manip.GetPrompt(allBoxes);
             var fail = manip.GetFail(allBoxes);
@@ -31,10 +28,10 @@
                 return false;
 
             var result = manip.Execute(SAV, param);
-            if (!result)
+            if (result <= 0)
                 return false;
             var success = manip.GetSuccess(allBoxes);
-            FinishBoxManipulation(success, allBoxes);
+            FinishBoxManipulation(success, allBoxes, result);
             return true;
         }
 
@@ -67,6 +64,7 @@
         /// </summary>
         /// <param name="message">Optional message to show if applicable.</param>
         /// <param name="all">Indicates if all boxes were manipulated, or just one box.</param>
-        protected abstract void FinishBoxManipulation(string message, bool all);
+        /// <param name="count">Count of manipulated slots</param>
+        protected abstract void FinishBoxManipulation(string message, bool all, int count);
     }
 }

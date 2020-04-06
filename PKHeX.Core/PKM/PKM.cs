@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace PKHeX.Core
@@ -6,41 +7,41 @@ namespace PKHeX.Core
     /// <summary>
     /// Object representing a <see cref="PKM"/>'s data and derived properties.
     /// </summary>
-    public abstract class PKM : ITrainerID, ILangNick, IGameValueLimit
+    public abstract class PKM : ITrainerID, ILangNick, IGameValueLimit, INature
     {
         public static readonly string[] Extensions = PKX.GetPKMExtensions();
         public abstract int SIZE_PARTY { get; }
         public abstract int SIZE_STORED { get; }
         public string Extension => GetType().Name.ToLower();
         public abstract PersonalInfo PersonalInfo { get; }
-        public abstract byte[] ExtraBytes { get; }
+        public virtual IReadOnlyList<ushort> ExtraBytes => Array.Empty<ushort>();
 
         // Internal Attributes set on creation
-        public byte[] Data; // Raw Storage
-        public string Identifier; // User or Form Custom Attribute
+        public abstract byte[] Data { get; } // Raw Storage
+        public string? Identifier; // User or Form Custom Attribute
         public int Box { get; set; } = -1; // Batch Editor
         public int Slot { get; set; } = -1; // Batch Editor
 
-        public virtual byte[] EncryptedPartyData => Encrypt().Take(SIZE_PARTY).ToArray();
-        public virtual byte[] EncryptedBoxData => Encrypt().Take(SIZE_STORED).ToArray();
-        public virtual byte[] DecryptedPartyData => Write().Take(SIZE_PARTY).ToArray();
-        public virtual byte[] DecryptedBoxData => Write().Take(SIZE_STORED).ToArray();
+        public virtual byte[] EncryptedPartyData => Truncate(Encrypt(), SIZE_PARTY);
+        public virtual byte[] EncryptedBoxData => Truncate(Encrypt(), SIZE_STORED);
+        public virtual byte[] DecryptedPartyData => Truncate(Write(), SIZE_PARTY);
+        public virtual byte[] DecryptedBoxData => Truncate(Write(), SIZE_STORED);
+
+        private static byte[] Truncate(byte[] data, int newSize)
+        {
+            if (data.Length != newSize)
+                Array.Resize(ref data, newSize);
+            return data;
+        }
+
         public virtual bool Valid { get => ChecksumValid && Sanity == 0; set { if (!value) return; Sanity = 0; RefreshChecksum(); } }
 
         // Trash Bytes
         public abstract byte[] Nickname_Trash { get; set; }
         public abstract byte[] OT_Trash { get; set; }
-        public virtual byte[] HT_Trash { get; set; }
+        public virtual byte[] HT_Trash { get; set; } = Array.Empty<byte>();
 
-        protected byte[] GetData(int Offset, int Length)
-        {
-            if (Offset + Length > Data.Length)
-                return null;
-
-            byte[] data = new byte[Length];
-            Array.Copy(Data, Offset, data, 0, Length);
-            return data;
-        }
+        protected byte[] GetData(int Offset, int Length) => Data.Slice(Offset, Length);
 
         protected virtual ushort CalculateChecksum()
         {
@@ -73,6 +74,7 @@ namespace PKHeX.Core
         public abstract int HeldItem { get; set; }
         public abstract int Gender { get; set; }
         public abstract int Nature { get; set; }
+        public virtual int StatNature { get => Nature; set => Nature = value; }
         public abstract int Ability { get; set; }
         public abstract int CurrentFriendship { get; set; }
         public abstract int AltForm { get; set; }
@@ -110,6 +112,7 @@ namespace PKHeX.Core
         public abstract int IV_SPE { get; set; }
         public abstract int IV_SPA { get; set; }
         public abstract int IV_SPD { get; set; }
+        public abstract int Status_Condition { get; set; }
         public abstract int Stat_Level { get; set; }
         public abstract int Stat_HPMax { get; set; }
         public abstract int Stat_HPCurrent { get; set; }
@@ -148,7 +151,7 @@ namespace PKHeX.Core
         public virtual int Met_Year { get => 0; set { } }
         public virtual int Met_Month { get => 0; set { } }
         public virtual int Met_Day { get => 0; set { } }
-        public virtual string HT_Name { get; set; }
+        public virtual string HT_Name { get; set; } = string.Empty;
         public virtual int HT_Gender { get; set; }
         public virtual int HT_Affection { get; set; }
         public virtual int HT_Friendship { get; set; }
@@ -276,9 +279,32 @@ namespace PKHeX.Core
         public int SpecForm { get => Species + (AltForm << 11); set { Species = value & 0x7FF; AltForm = value >> 11; } }
         public virtual int SpriteItem => HeldItem;
         public virtual bool IsShiny => TSV == PSV;
-        public virtual bool Locked { get => false; set { } }
+        public StorageSlotFlag StorageFlags { get; internal set; }
+        public bool Locked => StorageFlags.HasFlagFast(StorageSlotFlag.Locked);
         public int TrainerID7 { get => (int)((uint)(TID | (SID << 16)) % 1000000); set => SetID7(TrainerSID7, value); }
         public int TrainerSID7 { get => (int)((uint)(TID | (SID << 16)) / 1000000); set => SetID7(value, TrainerID7); }
+
+        public uint ShinyXor
+        {
+            get
+            {
+                var pid = PID;
+                var upper = (pid >> 16) ^ (uint)SID;
+                return (pid & 0xFFFF) ^ (uint)TID ^ upper;
+            }
+        }
+
+        public int DisplayTID
+        {
+            get => GenNumber >= 7 ? TrainerID7 : TID;
+            set { if (GenNumber >= 7) TrainerID7 = value; else TID = value; }
+        }
+
+        public int DisplaySID
+        {
+            get => GenNumber >= 7 ? TrainerSID7 : SID;
+            set { if (GenNumber >= 7) TrainerSID7 = value; else SID = value; }
+        }
 
         private void SetID7(int sid7, int tid7)
         {
@@ -287,9 +313,6 @@ namespace PKHeX.Core
             SID = oid >> 16;
         }
 
-        public bool VC2 => Version >= 39 && Version <= 41;
-        public bool VC1 => Version >= 35 && Version <= 38;
-        public bool Horohoro => Version == 34;
         public bool E => Version == (int)GameVersion.E;
         public bool FRLG => Version == (int)GameVersion.FR || Version == (int)GameVersion.LG;
         public bool Pt => (int)GameVersion.Pt == Version;
@@ -300,9 +323,15 @@ namespace PKHeX.Core
         public bool AO => Version == (int)GameVersion.AS || Version == (int)GameVersion.OR;
         public bool SM => Version == (int)GameVersion.SN || Version == (int)GameVersion.MN;
         public bool USUM => Version == (int)GameVersion.US || Version == (int)GameVersion.UM;
+        public bool GO => Version == (int)GameVersion.GO;
+        public bool VC1 => Version >= (int)GameVersion.RD && Version <= (int)GameVersion.YW;
+        public bool VC2 => Version >= (int)GameVersion.GD && Version <= (int)GameVersion.C;
         public bool GG => Version == (int)GameVersion.GP || Version == (int)GameVersion.GE || Version == (int)GameVersion.GO;
+        public bool SWSH => Version == (int)GameVersion.SW || Version == (int)GameVersion.SH;
+
         protected bool PtHGSS => Pt || HGSS;
         public bool VC => VC1 || VC2;
+        public bool Gen8 => Version >= 44 && Version <= 45;
         public bool Gen7 => (Version >= 30 && Version <= 33) || GG;
         public bool Gen6 => Version >= 24 && Version <= 29;
         public bool Gen5 => Version >= 20 && Version <= 23;
@@ -310,12 +339,13 @@ namespace PKHeX.Core
         public bool Gen3 => (Version >= 1 && Version <= 5) || Version == 15;
         public bool Gen2 => Version == (int)GameVersion.GSC;
         public bool Gen1 => Version == (int)GameVersion.RBY;
-        public bool GenU => !(Gen7 || Gen6 || Gen5 || Gen4 || Gen3 || Gen2 || Gen1 || VC);
+        public bool GenU => GenNumber <= 0;
 
         public int GenNumber
         {
             get
             {
+                if (Gen8) return 8;
                 if (Gen7) return 7;
                 if (Gen6) return 6;
                 if (Gen5) return 5;
@@ -330,10 +360,20 @@ namespace PKHeX.Core
         }
 
         public int DebutGeneration => Legal.GetDebutGeneration(Species);
-        public bool PKRS_Infected => PKRS_Strain > 0;
-        public bool PKRS_Cured => PKRS_Days == 0 && PKRS_Strain > 0;
+        public bool PKRS_Infected { get => PKRS_Strain > 0; set => PKRS_Strain = value ? Math.Max(PKRS_Strain, 1) : 0; }
+
+        public bool PKRS_Cured
+        {
+            get => PKRS_Days == 0 && PKRS_Strain > 0;
+            set
+            {
+                PKRS_Days = value ? 0 : 1;
+                PKRS_Infected = true;
+            }
+        }
+
         public virtual bool ChecksumValid => Checksum == CalculateChecksum();
-        public int CurrentLevel { get => Experience.GetLevel(EXP, Species, AltForm); set => EXP = Experience.GetEXP(Stat_Level = value, Species, AltForm); }
+        public int CurrentLevel { get => Experience.GetLevel(EXP, PersonalInfo.EXPGrowth); set => EXP = Experience.GetEXP(Stat_Level = value, PersonalInfo.EXPGrowth); }
         public int MarkCircle      { get => Markings[0]; set { var marks = Markings; marks[0] = value; Markings = marks; } }
         public int MarkTriangle    { get => Markings[1]; set { var marks = Markings; marks[1] = value; Markings = marks; } }
         public int MarkSquare      { get => Markings[2]; set { var marks = Markings; marks[2] = value; Markings = marks; } }
@@ -342,7 +382,23 @@ namespace PKHeX.Core
         public int MarkDiamond     { get => Markings[5]; set { var marks = Markings; marks[5] = value; Markings = marks; } }
         public int IVTotal => IV_HP + IV_ATK + IV_DEF + IV_SPA + IV_SPD + IV_SPE;
         public int EVTotal => EV_HP + EV_ATK + EV_DEF + EV_SPA + EV_SPD + EV_SPE;
-        public string[] QRText => this.GetQRLines();
+        public int MaximumIV => Math.Max(Math.Max(Math.Max(Math.Max(Math.Max(IV_HP, IV_ATK), IV_DEF), IV_SPA), IV_SPD), IV_SPE);
+
+        public int FlawlessIVCount
+        {
+            get
+            {
+                int max = MaxIV;
+                int ctr = 0;
+                if (IV_HP == max) ++ctr;
+                if (IV_ATK == max) ++ctr;
+                if (IV_DEF == max) ++ctr;
+                if (IV_SPA == max) ++ctr;
+                if (IV_SPD == max) ++ctr;
+                if (IV_SPE == max) ++ctr;
+                return ctr;
+            }
+        }
 
         public string FileName => $"{FileNameWithoutExtension}.{Extension}";
 
@@ -350,8 +406,8 @@ namespace PKHeX.Core
         {
             get
             {
-                string form = AltForm > 0 ? $"-{AltForm:00}" : "";
-                string star = IsShiny ? " ★" : "";
+                string form = AltForm > 0 ? $"-{AltForm:00}" : string.Empty;
+                string star = IsShiny ? " ★" : string.Empty;
                 return $"{Species:000}{form}{star} - {Nickname} - {Checksum:X4}{EncryptionConstant:X8}";
             }
         }
@@ -361,7 +417,8 @@ namespace PKHeX.Core
             get => new[] { IV_HP, IV_ATK, IV_DEF, IV_SPE, IV_SPA, IV_SPD };
             set
             {
-                if (value?.Length != 6) return;
+                if (value.Length != 6)
+                    return;
                 IV_HP = value[0]; IV_ATK = value[1]; IV_DEF = value[2];
                 IV_SPE = value[3]; IV_SPA = value[4]; IV_SPD = value[5];
             }
@@ -372,7 +429,8 @@ namespace PKHeX.Core
             get => new[] { EV_HP, EV_ATK, EV_DEF, EV_SPE, EV_SPA, EV_SPD };
             set
             {
-                if (value?.Length != 6) return;
+                if (value.Length != 6)
+                    return;
                 EV_HP = value[0]; EV_ATK = value[1]; EV_DEF = value[2];
                 EV_SPE = value[3]; EV_SPA = value[4]; EV_SPD = value[5];
             }
@@ -383,7 +441,7 @@ namespace PKHeX.Core
             get => new[] { Stat_HPCurrent, Stat_ATK, Stat_DEF, Stat_SPE, Stat_SPA, Stat_SPD };
             set
             {
-                if (value?.Length != 6)
+                if (value.Length != 6)
                     return;
                 Stat_HPCurrent = value[0]; Stat_ATK = value[1]; Stat_DEF = value[2];
                 Stat_SPE = value[3]; Stat_SPA = value[4]; Stat_SPD = value[5];
@@ -402,16 +460,26 @@ namespace PKHeX.Core
             }
         }
 
+        public void SetMoves(IReadOnlyList<int> value)
+        {
+            Move1 = value.Count > 0 ? value[0] : 0;
+            Move2 = value.Count > 1 ? value[1] : 0;
+            Move3 = value.Count > 2 ? value[2] : 0;
+            Move4 = value.Count > 3 ? value[3] : 0;
+        }
+
         public int[] RelearnMoves
         {
             get => new[] { RelearnMove1, RelearnMove2, RelearnMove3, RelearnMove4 };
-            set
-            {
-                RelearnMove1 = value.Length > 0 ? value[0] : 0;
-                RelearnMove2 = value.Length > 1 ? value[1] : 0;
-                RelearnMove3 = value.Length > 2 ? value[2] : 0;
-                RelearnMove4 = value.Length > 3 ? value[3] : 0;
-            }
+            set => SetRelearnMoves(value);
+        }
+
+        public void SetRelearnMoves(IReadOnlyList<int> value)
+        {
+            RelearnMove1 = value.Count > 0 ? value[0] : 0;
+            RelearnMove2 = value.Count > 1 ? value[1] : 0;
+            RelearnMove3 = value.Count > 2 ? value[2] : 0;
+            RelearnMove4 = value.Count > 3 ? value[3] : 0;
         }
 
         public int PIDAbility
@@ -463,12 +531,12 @@ namespace PKHeX.Core
             get => 15 * HPVal / 63;
             set
             {
-                IV_HP = (IV_HP & ~1) + PKX.hpivs[value, 0];
-                IV_ATK = (IV_ATK & ~1) + PKX.hpivs[value, 1];
-                IV_DEF = (IV_DEF & ~1) + PKX.hpivs[value, 2];
-                IV_SPE = (IV_SPE & ~1) + PKX.hpivs[value, 3];
-                IV_SPA = (IV_SPA & ~1) + PKX.hpivs[value, 4];
-                IV_SPD = (IV_SPD & ~1) + PKX.hpivs[value, 5];
+                IV_HP =  (IV_HP  & ~1) + HiddenPower.DefaultLowBits[value, 0];
+                IV_ATK = (IV_ATK & ~1) + HiddenPower.DefaultLowBits[value, 1];
+                IV_DEF = (IV_DEF & ~1) + HiddenPower.DefaultLowBits[value, 2];
+                IV_SPE = (IV_SPE & ~1) + HiddenPower.DefaultLowBits[value, 3];
+                IV_SPA = (IV_SPA & ~1) + HiddenPower.DefaultLowBits[value, 4];
+                IV_SPD = (IV_SPD & ~1) + HiddenPower.DefaultLowBits[value, 5];
             }
         }
 
@@ -477,23 +545,23 @@ namespace PKHeX.Core
         public bool Gen1_NotTradeback => TradebackStatus == TradebackType.Gen1_NotTradeback;
         public bool Gen2_NotTradeback => TradebackStatus == TradebackType.Gen2_NotTradeback;
         public virtual bool WasLink => false;
-        private bool _WasEgg;
 
         public bool WasEgg
         {
             get
             {
-                switch (GenNumber)
+                int loc = Egg_Location;
+                return GenNumber switch
                 {
-                    case 4: return Legal.EggLocations4.Contains(Egg_Location) || (Species == 490 && Egg_Location == 3001) || (Egg_Location == 3002 && PtHGSS); // faraway
-                    case 5: return Legal.EggLocations5.Contains(Egg_Location);
-                    case 6: return Legal.EggLocations6.Contains(Egg_Location);
-                    case 7: return Legal.EggLocations7.Contains(Egg_Location);
-                }
-                // Gen 1/2 and pal park Gen 3
-                return _WasEgg;
+                    4 => (Legal.EggLocations4.Contains(loc) || (Species == (int) Core.Species.Manaphy && loc == Locations.Ranger4) || (loc == Locations.Faraway4 && PtHGSS)), // faraway
+                    5 => Legal.EggLocations5.Contains(loc),
+                    6 => Legal.EggLocations6.Contains(loc),
+                    7 => Legal.EggLocations7.Contains(loc),
+                    8 => Legal.EggLocations8.Contains(loc),
+                    // Gen 1/2 and pal park Gen 3
+                    _ => false
+                };
             }
-            set => _WasEgg = value;
         }
 
         public bool WasBredEgg
@@ -503,56 +571,60 @@ namespace PKHeX.Core
                 int loc = Egg_Location;
                 switch (GenNumber)
                 {
-                    case 4: return loc == 02000 || loc == 02002 || (loc == 03002 && PtHGSS); // faraway
-                    case 5: return loc == 60002 || loc == 30003;
+                    case 4: return loc == Locations.Daycare4 || loc == Locations.LinkTrade4 || (loc == Locations.Faraway4 && PtHGSS); // faraway
+                    case 5: return loc == Locations.Daycare5 || loc == Locations.LinkTrade5;
                     case 6:
-                    case 7: return loc == 60002 || loc == 30002;
-                    default: return _WasEgg; // Gen 1/2 and pal park Gen 3
+                    case 7:
+                    case 8:
+                        return loc == Locations.Daycare5 || loc == Locations.LinkTrade6;
+                    default: return false; // Gen 1/2 and pal park Gen 3
                 }
             }
-            set => _WasEgg = value;
         }
 
         public virtual bool WasGiftEgg
         {
             get
             {
-                if (!WasEgg) return false;
+                if (!WasEgg)
+                    return false;
+                int loc = Egg_Location;
                 switch (GenNumber)
                 {
-                    case 4: return Legal.GiftEggLocation4.Contains(Egg_Location) || (Egg_Location == 3002 && HGSS); // faraway
-                    case 5: return Egg_Location == 60003;
+                    case 4: return Legal.GiftEggLocation4.Contains(loc) || (loc == Locations.Faraway4 && HGSS); // faraway
+                    case 5: return loc == 60003;
                     case 6:
-                    case 7: return Egg_Location == 60004;
+                    case 7:
+                    case 8:
+                        return loc == 60004;
                 }
                 return false;
             }
         }
 
-        public virtual bool WasEvent => (Met_Location > 40000 && Met_Location < 50000) || FatefulEncounter;
-        public virtual bool WasEventEgg => Gen4 ? WasEgg && Species == 490 : ((Egg_Location > 40000 && Egg_Location < 50000) || (FatefulEncounter && Egg_Location > 0)) && Met_Level == 1;
+        public virtual bool WasEvent => Locations.IsEventLocation5(Met_Location) || FatefulEncounter;
 
-        public bool WasTradedEgg => Egg_Location == GetTradedEggLocation();
-        public bool IsTradedEgg => Met_Location == GetTradedEggLocation();
-
-        private int GetTradedEggLocation()
+        public virtual bool WasEventEgg
         {
-            switch (GenNumber)
+            get
             {
-                case 4: return 2002;
-                case 5: return 30003;
-                default: return 30002;
+                if (Gen4)
+                    return WasEgg && Species == (int) Core.Species.Manaphy;
+                // Gen5+
+                if (Met_Level != 1)
+                    return false;
+                int loc = Egg_Location;
+                return Locations.IsEventLocation5(loc) || (FatefulEncounter && loc != 0);
             }
         }
 
-        public virtual bool WasIngameTrade => Met_Location == 30001 || (Gen4 && Egg_Location == 2001);
+        public bool WasTradedEgg => Egg_Location == GetTradedEggLocation();
+        public bool IsTradedEgg => Met_Location == GetTradedEggLocation();
+        private int GetTradedEggLocation() => Locations.TradedEggLocation(GenNumber);
+
         public virtual bool IsUntraded => false;
         public virtual bool IsNative => GenNumber == Format;
         public virtual bool IsOriginValid => Species <= Legal.GetMaxSpeciesOrigin(Format);
-
-        public virtual bool SecretSuperTrainingUnlocked { get => false; set { } }
-        public virtual bool SecretSuperTrainingComplete { get => false; set { } }
-        public virtual int SuperTrainingMedalCount(int maxCount = 30) => 0;
 
         /// <summary>
         /// Checks if the <see cref="PKM"/> could inhabit a set of games.
@@ -587,18 +659,18 @@ namespace PKHeX.Core
                 return false; // Future
 
             int gen = GenNumber;
-            switch (Generation)
+            return Generation switch
             {
-                case 1: return Format == 1 || VC; // species compat checked via sanity above
-                case 2: return Format == 2 || VC;
-                case 3: return Gen3;
-                case 4: return 3 <= gen && gen <= 4;
-                case 5: return 3 <= gen && gen <= 5;
-                case 6: return 3 <= gen && gen <= 6;
-                case 7: return (3 <= gen && gen <= 7) || VC;
-                default:
-                    return false;
-            }
+                1 => (Format == 1 || VC), // species compat checked via sanity above
+                2 => (Format == 2 || VC),
+                3 => Gen3,
+                4 => (3 <= gen && gen <= 4),
+                5 => (3 <= gen && gen <= 5),
+                6 => (3 <= gen && gen <= 6),
+                7 => ((3 <= gen && gen <= 7) || VC),
+                8 => ((3 <= gen && gen <= 8) || VC),
+                _ => false
+            };
         }
 
         /// <summary>
@@ -623,7 +695,7 @@ namespace PKHeX.Core
                 return gender == 0;
 
             int gen = GenNumber;
-            if (2 >= gen || gen >= 6)
+            if (gen <= 2 || gen >= 6)
                 return gender == (gender & 1);
 
             return gender == PKX.GetGenderFromPIDAndRatio(PID, gv);
@@ -652,28 +724,26 @@ namespace PKHeX.Core
         /// </summary>
         private void ReorderMoves()
         {
-            if (Move4 != 0 && Move3 == 0)
-            {
-                Move3 = Move4;
-                Move3_PP = Move4_PP;
-                Move3_PPUps = Move4_PPUps;
-                Move4 = 0;
-            }
-            if (Move3 != 0 && Move2 == 0)
-            {
-                Move2 = Move3;
-                Move2_PP = Move3_PP;
-                Move2_PPUps = Move3_PPUps;
-                Move3 = 0;
-                ReorderMoves();
-            }
-            if (Move2 != 0 && Move1 == 0)
+            if (Move1 == 0 && Move2 != 0)
             {
                 Move1 = Move2;
                 Move1_PP = Move2_PP;
                 Move1_PPUps = Move2_PPUps;
                 Move2 = 0;
-                ReorderMoves();
+            }
+            if (Move2 == 0 && Move3 != 0)
+            {
+                Move2 = Move3;
+                Move2_PP = Move3_PP;
+                Move2_PPUps = Move3_PPUps;
+                Move3 = 0;
+            }
+            if (Move3 == 0 && Move4 != 0)
+            {
+                Move3 = Move4;
+                Move3_PP = Move4_PP;
+                Move3_PPUps = Move4_PPUps;
+                Move4 = 0;
             }
         }
 
@@ -723,7 +793,7 @@ namespace PKHeX.Core
 
             ushort[] stats = this is IHyperTrain t ? GetStats(p, t, level) : GetStats(p, level);
             // Account for nature
-            PKX.ModifyStatsForNature(stats, Nature);
+            PKX.ModifyStatsForNature(stats, StatNature);
             return stats;
         }
 
@@ -766,11 +836,55 @@ namespace PKHeX.Core
         }
 
         /// <summary>
+        /// Indicates if Party Stats are present. False if not initialized (from stored format).
+        /// </summary>
+        public bool PartyStatsPresent => Stat_HPMax != 0;
+
+        /// <summary>
+        /// Clears any status condition and refreshes the stats.
+        /// </summary>
+        public void ResetPartyStats()
+        {
+            SetStats(GetStats(PersonalInfo));
+            Stat_Level = CurrentLevel;
+            Status_Condition = 0;
+        }
+
+        public void Heal()
+        {
+            ResetPartyStats();
+            HealPP();
+        }
+
+        /// <summary>
+        /// Restores PP to maximum based on the current PP Ups for each move.
+        /// </summary>
+        public void HealPP()
+        {
+            Move1_PP = GetMovePP(Move1, Move1_PPUps);
+            Move2_PP = GetMovePP(Move2, Move2_PPUps);
+            Move3_PP = GetMovePP(Move3, Move3_PPUps);
+            Move4_PP = GetMovePP(Move4, Move4_PPUps);
+        }
+
+        /// <summary>
+        /// Enforces that Party Stat values are present.
+        /// </summary>
+        /// <returns>True if stats were refreshed, false if stats were already present.</returns>
+        public bool ForcePartyData()
+        {
+            if (PartyStatsPresent)
+                return false;
+            ResetPartyStats();
+            return true;
+        }
+
+        /// <summary>
         /// Checks if the <see cref="PKM"/> can hold its <see cref="HeldItem"/>.
         /// </summary>
         /// <param name="ValidArray">Items that the <see cref="PKM"/> can hold.</param>
         /// <returns>True/False if the <see cref="PKM"/> can hold its <see cref="HeldItem"/>.</returns>
-        public virtual bool CanHoldItem(ushort[] ValidArray) => ValidArray.Contains((ushort)HeldItem);
+        public virtual bool CanHoldItem(IReadOnlyList<ushort> ValidArray) => ValidArray.Contains((ushort)HeldItem);
 
         /// <summary>
         /// Deep clones the <see cref="PKM"/> object. The clone will not have any shared resources with the source.
@@ -785,7 +899,7 @@ namespace PKHeX.Core
         /// <param name="month">Month the <see cref="PKM"/> was traded.</param>
         /// <param name="y">Day the <see cref="PKM"/> was traded.</param>
         /// <param name="location">Link Trade location value.</param>
-        protected void SetLinkTradeEgg(int day, int month, int y, int location = 30002)
+        protected void SetLinkTradeEgg(int day, int month, int y, int location)
         {
             Met_Day = day;
             Met_Month = month;
@@ -819,13 +933,14 @@ namespace PKHeX.Core
         /// </summary>
         /// <remarks>
         /// If a <see cref="PKM"/> originated in a generation prior to Generation 6, the <see cref="EncryptionConstant"/> is updated.
-        /// If a <see cref="PKM"/> is in the <see cref="_K12"/> format, it will update the <see cref="IVs"/> instead.
+        /// If a <see cref="PKM"/> is in the <see cref="GBPKM"/> format, it will update the <see cref="IVs"/> instead.
         /// </remarks>
         public virtual void SetShiny()
         {
-            while (!IsShiny)
-                PID = PKX.GetRandomPID(Species, Gender, Version, Nature, AltForm, PID);
-            if (Format >= 6 && 3 <= GenNumber && GenNumber <= 5)
+            var rnd = Util.Rand;
+            do { PID = PKX.GetRandomPID(rnd, Species, Gender, Version, Nature, AltForm, PID); }
+            while (!IsShiny);
+            if (Format >= 6 && (Gen3 || Gen4 || Gen5))
                 EncryptionConstant = PID;
         }
 
@@ -834,7 +949,8 @@ namespace PKHeX.Core
         /// </summary>
         public void SetShinySID()
         {
-            if (IsShiny) return;
+            if (IsShiny)
+                return;
             var xor = TID ^ (PID >> 16) ^ (PID & 0xFFFF);
             SID = (int)(xor & 0xFFF8) | Util.Rand.Next(8);
         }
@@ -848,8 +964,10 @@ namespace PKHeX.Core
         /// </remarks>
         public void SetPIDGender(int gender)
         {
-            do PID = PKX.GetRandomPID(Species, gender, Version, Nature, AltForm, PID); while (IsShiny);
-            if (Format >= 6 && 3 <= GenNumber && GenNumber <= 5)
+            var rnd = Util.Rand;
+            do PID = PKX.GetRandomPID(rnd, Species, gender, Version, Nature, AltForm, PID);
+            while (IsShiny);
+            if (Format >= 6 && (Gen3 || Gen4 || Gen5))
                 EncryptionConstant = PID;
         }
 
@@ -862,8 +980,10 @@ namespace PKHeX.Core
         /// </remarks>
         public void SetPIDNature(int nature)
         {
-            do PID = PKX.GetRandomPID(Species, Gender, Version, nature, AltForm, PID); while (IsShiny);
-            if (Format >= 6 && 3 <= GenNumber && GenNumber <= 5)
+            var rnd = Util.Rand;
+            do PID = PKX.GetRandomPID(rnd, Species, Gender, Version, nature, AltForm, PID);
+            while (IsShiny);
+            if (Format >= 6 && (Gen3 || Gen4 || Gen5))
                 EncryptionConstant = PID;
         }
 
@@ -878,7 +998,7 @@ namespace PKHeX.Core
         public void SetPIDUnown3(int form)
         {
             do PID = Util.Rand32(); while (PKX.GetUnownForm(PID) != form);
-            if (Format >= 6 && 3 <= GenNumber && GenNumber <= 5)
+            if (Format >= 6 && (Gen3 || Gen4 || Gen5))
                 EncryptionConstant = PID;
         }
 
@@ -893,8 +1013,9 @@ namespace PKHeX.Core
                 return SetRandomIVsGO();
 
             int[] ivs = new int[6];
+            var rnd = Util.Rand;
             for (int i = 0; i < 6; i++)
-                ivs[i] = Util.Rand.Next(MaxIV + 1);
+                ivs[i] = rnd.Next(MaxIV + 1);
 
             int count = flawless ?? GetFlawlessIVCount();
             if (count != 0)
@@ -909,10 +1030,11 @@ namespace PKHeX.Core
         private int[] SetRandomIVsGO()
         {
             int[] ivs = new int[6];
-            ivs[0] = (Util.Rand.Next(16) << 1) | 1; // hp
-            ivs[1] = ivs[4] = (Util.Rand.Next(16) << 1) | 1; // attack
-            ivs[2] = ivs[5] = (Util.Rand.Next(16) << 1) | 1; // defense
-            ivs[3] = Util.Rand.Next(MaxIV + 1); // speed
+            var rnd = Util.Rand;
+            ivs[0] = (rnd.Next(16) << 1) | 1; // hp
+            ivs[1] = ivs[4] = (rnd.Next(16) << 1) | 1; // attack
+            ivs[2] = ivs[5] = (rnd.Next(16) << 1) | 1; // defense
+            ivs[3] = rnd.Next(MaxIV + 1); // speed
             return IVs = ivs;
         }
 
@@ -922,14 +1044,15 @@ namespace PKHeX.Core
         /// <param name="template">IV template to generate from</param>
         /// <param name="flawless">Count of flawless IVs to set. If none provided, a count will be detected.</param>
         /// <returns>Randomized IVs if desired.</returns>
-        public int[] SetRandomIVs(int[] template, int? flawless = null)
+        public int[] SetRandomIVs(IReadOnlyList<int> template, int? flawless = null)
         {
             int count = flawless ?? GetFlawlessIVCount();
             int[] ivs = new int[6];
+            var rnd = Util.Rand;
             do
             {
                 for (int i = 0; i < 6; i++)
-                    ivs[i] = template[i] < 0 ? Util.Rand.Next(MaxIV + 1) : template[i];
+                    ivs[i] = template[i] < 0 ? rnd.Next(MaxIV + 1) : template[i];
             } while (ivs.Count(z => z == MaxIV) < count);
 
             IVs = ivs;
@@ -952,7 +1075,7 @@ namespace PKHeX.Core
                     return 3;
             }
             if (VC)
-                return Species == 151 || Species == 251 ? 5 : 3;
+                return Species == (int)Core.Species.Mew || Species == (int)Core.Species.Celebi ? 5 : 3;
             return 0;
         }
 
@@ -963,14 +1086,16 @@ namespace PKHeX.Core
         public void TransferPropertiesWithReflection(PKM Destination)
         {
             // Only transfer declared properties not defined in PKM.cs but in the actual type
-            var SourceProperties = ReflectUtil.GetPropertiesCanWritePublicDeclared(GetType());
-            var DestinationProperties = ReflectUtil.GetPropertiesCanWritePublicDeclared(Destination.GetType());
+            var src_t = GetType();
+            var dst_t = Destination.GetType();
+            var SourceProperties = ReflectUtil.GetAllPropertyInfoPublic(src_t).Select(z => z.Name);
+            var DestinationProperties = ReflectUtil.GetAllPropertyInfoPublic(dst_t).Where(z => z.SetMethod != null).Select(z => z.Name);
 
             // Transfer properties in the order they are defined in the destination PKM format for best conversion
             var shared = DestinationProperties.Intersect(SourceProperties);
             foreach (string property in shared)
             {
-                BatchEditing.TryGetHasProperty(Destination, property, out var src);
+                BatchEditing.TryGetHasProperty(this, property, out var src);
                 var prop = src.GetValue(this);
                 if (prop != null && !(prop is byte[]) && BatchEditing.TryGetHasProperty(Destination, property, out var pi))
                     ReflectUtil.SetValue(pi, Destination, prop);
@@ -1002,6 +1127,42 @@ namespace PKHeX.Core
 
             Moves = moves;
             FixMoves();
+        }
+
+        /// <summary>
+        /// Gets one of the <see cref="EVs"/> based on its index within the array.
+        /// </summary>
+        /// <param name="index">Index to get</param>
+        public int GetEV(int index)
+        {
+            return index switch
+            {
+                0 => EV_HP,
+                1 => EV_ATK,
+                2 => EV_DEF,
+                3 => EV_SPE,
+                4 => EV_SPA,
+                5 => EV_SPD,
+                _ => throw new ArgumentOutOfRangeException(nameof(index))
+            };
+        }
+
+        /// <summary>
+        /// Gets one of the <see cref="IVs"/> based on its index within the array.
+        /// </summary>
+        /// <param name="index">Index to get</param>
+        public int GetIV(int index)
+        {
+            return index switch
+            {
+                0 => IV_HP,
+                1 => IV_ATK,
+                2 => IV_DEF,
+                3 => IV_SPE,
+                4 => IV_SPA,
+                5 => IV_SPD,
+                _ => throw new ArgumentOutOfRangeException(nameof(index))
+            };
         }
     }
 }

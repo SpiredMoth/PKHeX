@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace PKHeX.Core
@@ -6,7 +7,7 @@ namespace PKHeX.Core
     /// <summary>
     /// Generation 4 Mystery Gift Template File (Inner Gift Data, no card data)
     /// </summary>
-    public sealed class PGT : MysteryGift
+    public sealed class PGT : DataMysteryGift
     {
         public const int Size = 0x104; // 260
         public override int Format => 4;
@@ -45,8 +46,8 @@ namespace PKHeX.Core
         public override bool GiftUsed { get => false; set { } }
         public override object Content => PK;
 
-        public PGT() => Data = new byte[Size];
-        public PGT(byte[] data) => Data = data;
+        public PGT() : this(new byte[Size]) { }
+        public PGT(byte[] data) : base(data) { }
 
         public byte CardType { get => Data[0]; set => Data[0] = value; }
         // Unused 0x01
@@ -60,7 +61,7 @@ namespace PKHeX.Core
             {
                 if (_pk != null)
                     return _pk;
-                byte[] ekdata = new byte[PKX.SIZE_4PARTY];
+                byte[] ekdata = new byte[PokeCrypto.SIZE_4PARTY];
                 Array.Copy(Data, 8, ekdata, 0, ekdata.Length);
                 return _pk = new PK4(ekdata);
             }
@@ -71,12 +72,20 @@ namespace PKHeX.Core
 
                 var pkdata = value.Data.All(z => z == 0)
                     ? value.Data
-                    : PKX.EncryptArray45(value.Data);
+                    : PokeCrypto.EncryptArray45(value.Data);
                 pkdata.CopyTo(Data, 8);
             }
         }
 
-        private PK4 _pk;
+        public override byte[] Write()
+        {
+            // Ensure PGT content is encrypted
+            var clone = (PGT)Clone();
+            clone.VerifyPKEncryption();
+            return clone.Data;
+        }
+
+        private PK4? _pk;
 
         /// <summary>
         /// Double checks the encryption of the gift data for Pokemon data.
@@ -92,22 +101,22 @@ namespace PKHeX.Core
 
         private void EncryptPK()
         {
-            byte[] ekdata = new byte[PKX.SIZE_4PARTY];
+            byte[] ekdata = new byte[PokeCrypto.SIZE_4PARTY];
             Array.Copy(Data, 8, ekdata, 0, ekdata.Length);
-            ekdata = PKX.EncryptArray45(ekdata);
+            ekdata = PokeCrypto.EncryptArray45(ekdata);
             ekdata.CopyTo(Data, 8);
         }
 
         private GiftType PGTGiftType { get => (GiftType)Data[0]; set => Data[0] = (byte)value; }
         public bool IsHatched => PGTGiftType == GiftType.Pokémon;
-        public override bool IsEgg { get => PGTGiftType == GiftType.PokémonEgg; set { if (value) { PGTGiftType = GiftType.PokémonEgg; PK.IsEgg = true; } } }
+        public override bool IsEgg { get => PGTGiftType == GiftType.PokémonEgg || IsManaphyEgg; set { if (value) { PGTGiftType = GiftType.PokémonEgg; PK.IsEgg = true; } } }
         public bool IsManaphyEgg { get => PGTGiftType == GiftType.ManaphyEgg; set { if (value) PGTGiftType = GiftType.ManaphyEgg; } }
-        public override bool EggEncounter => IsEgg || IsManaphyEgg;
+        public override bool EggEncounter => IsEgg;
         public override bool IsItem { get => PGTGiftType == GiftType.Item; set { if (value) PGTGiftType = GiftType.Item; } }
         public override bool IsPokémon { get => PGTGiftType == GiftType.Pokémon || PGTGiftType == GiftType.PokémonEgg || PGTGiftType == GiftType.ManaphyEgg; set { } }
 
         public override int Species { get => IsManaphyEgg ? 490 : PK.Species; set => PK.Species = value; }
-        public override int[] Moves { get => PK.Moves; set => PK.Moves = value; }
+        public override IReadOnlyList<int> Moves { get => PK.Moves; set => PK.SetMoves(value); }
         public override int HeldItem { get => PK.HeldItem; set => PK.HeldItem = value; }
         public override bool IsShiny => PK.IsShiny;
         public override int Gender { get => PK.Gender; set => PK.Gender = value; }
@@ -118,12 +127,13 @@ namespace PKHeX.Core
         public override int Location { get => PK.Met_Location; set => PK.Met_Location = value; }
         public override int EggLocation { get => PK.Egg_Location; set => PK.Egg_Location = value; }
 
-        public override PKM ConvertToPKM(ITrainerInfo SAV)
+        public override PKM ConvertToPKM(ITrainerInfo SAV, EncounterCriteria criteria)
         {
             if (!IsPokémon)
-                return null;
+                throw new ArgumentException(nameof(IsPokémon));
 
-            PK4 pk4 = new PK4((byte[])PK.Data.Clone()) {Sanity = 0};
+            // template is already filled out, only minor mutations required
+            PK4 pk4 = new PK4((byte[])PK.Data.Clone()) { Sanity = 0 };
             if (!IsHatched && Detail == 0)
             {
                 pk4.OT_Name = SAV.OT;
@@ -133,46 +143,22 @@ namespace PKHeX.Core
                 pk4.Language = SAV.Language;
             }
 
-            uint seed = Util.Rand32();
             if (IsManaphyEgg)
-            {
-                // Since none of this data is populated, fill in default info.
-                pk4.Species = 490;
-                pk4.Gender = 2;
-                // Level 1 Moves
-                pk4.Move1 = 294;
-                pk4.Move2 = 145;
-                pk4.Move3 = 346;
-                pk4.Ability = pk4.PersonalInfo.Abilities[0];
-                pk4.FatefulEncounter = true;
-                pk4.Ball = 4;
-                pk4.Version = 10; // Diamond
-                pk4.Language = (int)LanguageID.English; // English
-                pk4.Nickname = "MANAPHY";
-                pk4.Egg_Location = 1; // Ranger (will be +3000 later)
-                pk4.Move1_PP = pk4.GetMovePP(pk4.Move1, 0);
-                pk4.Move2_PP = pk4.GetMovePP(pk4.Move2, 0);
-                pk4.Move3_PP = pk4.GetMovePP(pk4.Move3, 0);
-                seed = GeneratePID(seed, pk4);
-            }
+                SetDefaultManaphyEggDetails(pk4);
 
-            // Generate IV
-            if (pk4.PID == 1) // Create Nonshiny
-                seed = GeneratePID(seed, pk4);
+            SetPINGA(pk4, criteria);
+            SetMetData(pk4, SAV);
 
-            if (!IsManaphyEgg)
-                seed = Util.Rand32(); // reseed, do not have method 1 correlation
+            var pi = pk4.PersonalInfo;
+            pk4.CurrentFriendship = pk4.IsEgg ? pi.HatchCycles : pi.BaseFriendship;
 
-            // Generate IVs
-            if (pk4.IV32 == 0)
-            {
-                uint iv1 = (PKX.LCRNG(ref seed) >> 16) & 0x7FFF;
-                uint iv2 = (PKX.LCRNG(ref seed) >> 16) & 0x7FFF;
-                pk4.IV32 = iv1 | iv2 << 15;
-            }
+            pk4.RefreshChecksum();
+            return pk4;
+        }
 
-            // Generate Met Info
-            if (!IsEgg && !IsManaphyEgg)
+        private void SetMetData(PK4 pk4, ITrainerInfo trainer)
+        {
+            if (!EggEncounter)
             {
                 pk4.Met_Location = pk4.Egg_Location + 3000;
                 pk4.Egg_Location = 0;
@@ -182,38 +168,78 @@ namespace PKHeX.Core
             else
             {
                 pk4.Egg_Location += 3000;
-                if (SAV.Generation == 4)
-                {
-                    pk4.IsEgg = true;
-                    pk4.IsNicknamed = false;
-                    pk4.Nickname = PKX.GetSpeciesNameGeneration(0, pk4.Language, Format);
-                    pk4.MetDate = DateTime.Now;
-                }
+                if (trainer.Generation == 4)
+                    SetUnhatchedEggDetails(pk4);
                 else
-                {
-                    pk4.IsEgg = false;
-                    // Met Location is modified when transferred to pk5; don't worry about it.
-                    pk4.EggMetDate = DateTime.Now;
-                }
-                while (pk4.IsShiny)
-                    pk4.PID = RNG.ARNG.Next(pk4.PID);
+                    SetHatchedEggDetails(pk4);
             }
-            var pi = pk4.PersonalInfo;
-            pk4.CurrentFriendship = pk4.IsEgg ? pi.HatchCycles : pi.BaseFriendship;
-            if (pk4.Species == 201) // Never will be true; Unown was never distributed.
-                pk4.AltForm = PKX.GetUnownForm(pk4.PID);
+        }
 
-            pk4.RefreshChecksum();
-            return pk4;
+        private static void SetDefaultManaphyEggDetails(PK4 pk4)
+        {
+            // Since none of this data is populated, fill in default info.
+            pk4.Species = 490;
+            pk4.Gender = 2;
+            // Level 1 Moves
+            pk4.Move1 = 294;
+            pk4.Move2 = 145;
+            pk4.Move3 = 346;
+            pk4.Ability = pk4.PersonalInfo.Abilities[0];
+            pk4.FatefulEncounter = true;
+            pk4.Ball = 4;
+            pk4.Version = 10; // Diamond
+            pk4.Language = (int)LanguageID.English; // English
+            pk4.Nickname = "MANAPHY";
+            pk4.Egg_Location = 1; // Ranger (will be +3000 later)
+            pk4.Move1_PP = pk4.GetMovePP(pk4.Move1, 0);
+            pk4.Move2_PP = pk4.GetMovePP(pk4.Move2, 0);
+            pk4.Move3_PP = pk4.GetMovePP(pk4.Move3, 0);
+        }
+
+        private void SetPINGA(PK4 pk4, EncounterCriteria criteria)
+        {
+            // Ability is forced already, can't force anything
+            // todo: loop force the Nature/Gender
+
+            // Generate IV
+            uint seed = Util.Rand32();
+            if (pk4.PID == 1 || IsManaphyEgg) // Create Nonshiny
+                seed = GeneratePID(seed, pk4);
+
+            if (!IsManaphyEgg)
+                seed = Util.Rand32(); // reseed, do not have method 1 correlation
+
+            // Generate IVs
+            if (pk4.IV32 == 0)
+            {
+                uint iv1 = ((seed = RNG.LCRNG.Next(seed)) >> 16) & 0x7FFF;
+                uint iv2 = ((RNG.LCRNG.Next(seed)) >> 16) & 0x7FFF;
+                pk4.IV32 = iv1 | iv2 << 15;
+            }
+        }
+
+        private static void SetHatchedEggDetails(PK4 pk4)
+        {
+            pk4.IsEgg = false;
+            // Met Location is modified when transferred to pk5; don't worry about it.
+            pk4.EggMetDate = DateTime.Now;
+        }
+
+        private void SetUnhatchedEggDetails(PK4 pk4)
+        {
+            pk4.IsEgg = true;
+            pk4.IsNicknamed = false;
+            pk4.Nickname = SpeciesName.GetSpeciesNameGeneration(0, pk4.Language, Format);
+            pk4.MetDate = DateTime.Now;
         }
 
         private static uint GeneratePID(uint seed, PK4 pk4)
         {
             do
             {
-                uint pid1 = PKX.LCRNG(ref seed) >> 16;
-                uint pid2 = PKX.LCRNG(ref seed) >> 16;
-                pk4.PID = pid1 | (pid2 << 16);
+                uint pid1 = (seed = RNG.LCRNG.Next(seed)) >> 16; // low
+                uint pid2 = (seed = RNG.LCRNG.Next(seed)) & 0xFFFF0000; // hi
+                pk4.PID = pid2 | pid1;
                 // sanity check gender for non-genderless PID cases
             } while (!pk4.IsGenderValid());
 
@@ -221,5 +247,23 @@ namespace PKHeX.Core
                 pk4.PID = RNG.ARNG.Next(pk4.PID);
             return seed;
         }
+
+        public static bool IsRangerManaphy(PKM pkm)
+        {
+            var egg = pkm.Egg_Location;
+            if (!pkm.IsEgg) // Link Trade Egg or Ranger
+                return egg == Locations.LinkTrade4 || egg == Locations.Ranger4;
+            if (egg != Locations.Ranger4)
+                return false;
+
+            if (pkm.Language == (int)LanguageID.Korean) // never korean
+                return false;
+
+            var met = pkm.Met_Location;
+            return met == Locations.LinkTrade4 || met == 0;
+        }
+
+        protected override bool IsMatchExact(PKM pkm) => false;
+        protected override bool IsMatchDeferred(PKM pkm) => false;
     }
 }

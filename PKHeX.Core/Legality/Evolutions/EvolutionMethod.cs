@@ -1,6 +1,4 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
+using static PKHeX.Core.EvolutionType;
 
 namespace PKHeX.Core
 {
@@ -9,62 +7,107 @@ namespace PKHeX.Core
     /// </summary>
     public sealed class EvolutionMethod
     {
-        public int Method;
-        public int Species;
-        public int Argument;
-        public int Form = -1;
-        public int Level;
+        /// <summary>
+        /// Evolution Method
+        /// </summary>
+        public readonly int Method;
 
-        public bool RequiresLevelUp;
+        /// <summary>
+        /// Evolve to Species
+        /// </summary>
+        public readonly int Species;
 
-        internal static readonly HashSet<int> TradeMethods = new HashSet<int> {5, 6, 7};
-        private static readonly IReadOnlyCollection<GameVersion> NoBanlist = Array.Empty<GameVersion>();
-        internal static readonly IReadOnlyCollection<GameVersion> BanSM = new[] {GameVersion.SN, GameVersion.MN};
-        internal static readonly IReadOnlyCollection<GameVersion> BanGG = new[] {GameVersion.GP, GameVersion.GE};
-        internal IReadOnlyCollection<GameVersion> Banlist = NoBanlist;
+        /// <summary>
+        /// Conditional Argument (different from <see cref="Level"/>)
+        /// </summary>
+        public readonly int Argument;
 
+        /// <summary>
+        /// Conditional Argument (different from <see cref="Argument"/>)
+        /// </summary>
+        public readonly int Level;
+
+        /// <summary>
+        /// Destination Form
+        /// </summary>
+        /// <remarks>Is <see cref="AnyForm"/> if the evolved form isn't modified. Special consideration for <see cref="LevelUpFormFemale1"/>, which forces 1.</remarks>
+        public readonly int Form;
+
+        private const int AnyForm = -1;
+
+        // Not stored in binary data
+        public bool RequiresLevelUp; // tracks if this method requires a Level Up, lazily set
+
+        public EvolutionMethod(int method, int species, int argument = 0, int level = 0, int form = AnyForm)
+        {
+            Method = method;
+            Species = species;
+            Argument = argument;
+            Form = form;
+            Level = level;
+        }
+
+        /// <summary>
+        /// Returns the form that the Pokémon will have after evolution.
+        /// </summary>
+        /// <param name="form">Un-evolved Form ID</param>
+        public int GetDestinationForm(int form)
+        {
+            if (Method == (int)LevelUpFormFemale1)
+                return 1;
+            if (Form == AnyForm)
+                return form;
+            return Form;
+        }
+
+        /// <summary>
+        /// Checks the <see cref="EvolutionMethod"/> for validity by comparing against the <see cref="PKM"/> data.
+        /// </summary>
+        /// <param name="pkm">Entity to check</param>
+        /// <param name="lvl">Current level</param>
+        /// <param name="skipChecks">Option to skip some comparisons to return a 'possible' evolution.</param>
+        /// <returns>True if a evolution criteria is valid.</returns>
         public bool Valid(PKM pkm, int lvl, bool skipChecks)
         {
             RequiresLevelUp = false;
-            if (Form > -1)
+            switch ((EvolutionType)Method)
             {
-                if (!skipChecks && pkm.AltForm != Form)
-                    return false;
-            }
-
-            if (!skipChecks && Banlist.Contains((GameVersion)pkm.Version) && pkm.IsUntraded) // sm lacks usum kantonian evos
-                return false;
-
-            switch (Method)
-            {
-                case 8: // Use Item
-                case 42:
+                case UseItem:
+                case UseItemWormhole:
+                case Crit3:
+                case HPDownBy49:
+                case SpinType:
                     return true;
-                case 17: // Male
+                case UseItemMale:
                     return pkm.Gender == 0;
-                case 18: // Female
+                case UseItemFemale:
                     return pkm.Gender == 1;
 
-                case 5: // Trade Evolution
-                case 6: // Trade while Holding
-                case 7: // Trade for Opposite Species
+                case Trade:
+                case TradeHeldItem:
+                case TradeSpecies:
                     return !pkm.IsUntraded || skipChecks;
 
-                // Special Levelup Cases
-                case 16 when !(pkm is IContestStats s) || s.CNT_Beauty < Argument:
-                    return skipChecks;
-                case 23 when pkm.Gender != 0: // Gender = Male
-                    return false;
-                case 24 when pkm.Gender != 1: // Gender = Female
-                    return false;
-                case 34 when pkm.Gender != 1 || pkm.AltForm != 1: // Gender = Female, out Form1
+                // Special Level Up Cases -- return false if invalid
+                case LevelUpNatureAmped when GetAmpLowKeyResult(pkm.Nature) != pkm.AltForm && !skipChecks:
+                case LevelUpNatureLowKey when GetAmpLowKeyResult(pkm.Nature) != pkm.AltForm && !skipChecks:
                     return false;
 
-                case 36 when ((pkm.Version & 1) != (Argument & 1) && pkm.IsUntraded) || skipChecks: // Any Time on Version
-                case 37 when ((pkm.Version & 1) != (Argument & 1) && pkm.IsUntraded) || skipChecks: // Daytime on Version
-                case 38 when ((pkm.Version & 1) != (Argument & 1) && pkm.IsUntraded) || skipChecks: // Nighttime on Version
+                case LevelUpBeauty when !(pkm is IContestStats s) || s.CNT_Beauty < Argument:
+                    return skipChecks;
+                case LevelUpMale when pkm.Gender != 0:
+                    return false;
+                case LevelUpFemale when pkm.Gender != 1:
+                    return false;
+                case LevelUpFormFemale1 when pkm.Gender != 1 || pkm.AltForm != 1:
+                    return false;
+
+                case LevelUpVersion when ((pkm.Version & 1) != (Argument & 1) && pkm.IsUntraded) || skipChecks:
+                case LevelUpVersionDay when ((pkm.Version & 1) != (Argument & 1) && pkm.IsUntraded) || skipChecks:
+                case LevelUpVersionNight when ((pkm.Version & 1) != (Argument & 1) && pkm.IsUntraded) || skipChecks:
                     return skipChecks; // Version checks come in pairs, check for any pair match
 
+                // Level Up (any); the above Level Up (with condition) cases will reach here if they were valid
                 default:
                     if (Level == 0 && lvl < 2)
                         return false;
@@ -76,49 +119,48 @@ namespace PKHeX.Core
                         return lvl >= Level;
 
                     // Check Met Level for extra validity
-                    switch (pkm.GenNumber)
-                    {
-                        case 1: // No metdata in RBY
-                        case 2: // No metdata in GS, Crystal metdata can be reset
-                            return true;
-                        case 3:
-                        case 4:
-                            if (pkm.Format > pkm.GenNumber) // Pal Park / PokeTransfer updates Met Level
-                                return true;
-                            return pkm.Met_Level < lvl;
-
-                        case 5: // Bank keeps current level
-                        case 6:
-                        case 7:
-                            return lvl >= Level && (!pkm.IsNative || pkm.Met_Level < lvl);
-                    }
-                    return false;
+                    return HasMetLevelIncreased(pkm, lvl);
             }
         }
 
-        public EvoCriteria GetEvoCriteria(int species, int lvl)
+        private bool HasMetLevelIncreased(PKM pkm, int lvl)
         {
-            return new EvoCriteria
+            int origin = pkm.GenNumber;
+            switch (origin)
             {
-                Species = species,
+                case 1: // No met data in RBY
+                case 2: // No met data in GS, Crystal met data can be reset
+                    return true;
+                case 3:
+                case 4:
+                    if (pkm.Format > origin) // Pal Park / PokeTransfer updates Met Level
+                        return true;
+                    return pkm.Met_Level < lvl;
+
+                case 5: // Bank keeps current level
+                case 6:
+                case 7:
+                case 8:
+                    return lvl >= Level && (!pkm.IsNative || pkm.Met_Level < lvl);
+
+                default: return false;
+            }
+        }
+
+        public EvoCriteria GetEvoCriteria(int species, int form, int lvl)
+        {
+            return new EvoCriteria(species, form)
+            {
                 Level = lvl,
-                Form = Form,
                 Method = Method,
             };
         }
 
-        public EvolutionMethod Copy(int species = -1)
+        public static int GetAmpLowKeyResult(int n)
         {
-            if (species < 0)
-                species = Species;
-            return new EvolutionMethod
-            {
-                Method = Method,
-                Species = species,
-                Argument = Argument,
-                Form = Form,
-                Level = Level
-            };
+            if ((uint)(n - 1) > 22)
+                return 0;
+            return (0x5BCA51 >> (n - 1)) & 1;
         }
     }
 }

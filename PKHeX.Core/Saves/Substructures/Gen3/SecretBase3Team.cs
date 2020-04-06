@@ -2,7 +2,7 @@ using System;
 
 namespace PKHeX.Core
 {
-    public class SecretBase3Team
+    public sealed class SecretBase3Team
     {
         private const int O_PID = 0;
         private const int O_Moves = 0x18;
@@ -53,7 +53,7 @@ namespace PKHeX.Core
         private void SetPKM(int i)
         {
             var pk = Team[i];
-            BitConverter.GetBytes((uint) pk.PID).CopyTo(Data, GetOffsetPID(i));
+            BitConverter.GetBytes(pk.PID).CopyTo(Data, GetOffsetPID(i));
             BitConverter.GetBytes((ushort)pk.Species).CopyTo(Data, GetOffsetSpecies(i));
             BitConverter.GetBytes((ushort)pk.HeldItem).CopyTo(Data, GetOffsetItem(i));
             BitConverter.GetBytes((ushort)pk.Move1).CopyTo(Data, GetOffsetMove(i, 0));
@@ -62,8 +62,6 @@ namespace PKHeX.Core
             BitConverter.GetBytes((ushort)pk.Move4).CopyTo(Data, GetOffsetMove(i, 3));
             Data[O_Level + i] = (byte) pk.Level;
             Data[O_EV + i] = (byte) pk.EVAll;
-
-            BitConverter.GetBytes((uint) pk.PID).CopyTo(Data, GetOffsetPID(i));
         }
     }
 }

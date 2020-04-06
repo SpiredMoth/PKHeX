@@ -75,6 +75,8 @@ namespace PKHeX.Core
         /// </summary>
         Headbutt     = 1 << 11,
 
+        Headbutt_Special = Headbutt | Special,
+
         /// <summary>
         /// Slot is encountered via the Poké Radar.
         /// </summary>
@@ -96,19 +98,14 @@ namespace PKHeX.Core
         BugContest   = 1 << 15,
 
         /// <summary>
+        /// Slot is encountered via the Bug Catching Contest.
+        /// </summary>
+        GoPark = 1 << 16,
+
+        /// <summary>
         /// Slot is encountered in the Safari Zone.
         /// </summary>
-        Safari       = 1 << 16, // always used as a modifier to another slot type
-
-        Rough_Terrain  = 1 << 17,
-        Yellow_Flowers = 1 << 18,
-        Purple_Flowers = 1 << 19,
-        Red_Flowers    = 1 << 20,
-
-        GoPark = 1 << 21,
-
-        // Combined
-        Headbutt_Special = Headbutt | Special,
+        Safari       = 1 << 30, // always used as a modifier to another slot type
 
         Grass_Safari = Grass | Safari,
         Surf_Safari = Surf | Safari,
@@ -131,6 +128,15 @@ namespace PKHeX.Core
         internal static bool IsSweetScentType(this SlotType t)
         {
             return !(t.IsFishingRodType() || (t & SlotType.Rock_Smash) != 0);
+        }
+
+        public static Ball GetBall(this SlotType t)
+        {
+            if (t == SlotType.BugContest)
+                return Ball.Sport;
+            if (t.IsSafariType())
+                return Ball.Safari;
+            return Ball.Poke;
         }
     }
 }

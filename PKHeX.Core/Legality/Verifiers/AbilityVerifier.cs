@@ -64,14 +64,14 @@ namespace PKHeX.Core
             }
 
             var gen = data.Info.Generation;
-            switch (gen)
+            return gen switch
             {
-                case 5: return VerifyAbility5(data, abilities);
-                case 6: return VerifyAbility6(data);
-                case 7: return VerifyAbility7(data);
-            }
-
-            return CheckMatch(data.pkm, abilities, gen, AbilityState.CanMismatch);
+                5 => VerifyAbility5(data, abilities),
+                6 => VerifyAbility6(data),
+                7 => VerifyAbility7(data),
+                8 => VerifyAbility8(data),
+                _ => CheckMatch(data.pkm, abilities, gen, AbilityState.CanMismatch)
+            };
         }
 
         private CheckResult VerifyAbility345(LegalityAnalysis data, IReadOnlyList<int> abilities, int abilnum)
@@ -296,6 +296,18 @@ namespace PKHeX.Core
             return VALID;
         }
 
+        private CheckResult VerifyAbility8(LegalityAnalysis data)
+        {
+            var pkm = data.pkm;
+            var EncounterMatch = data.EncounterMatch;
+            if (EncounterMatch is EncounterSlot && pkm.AbilityNumber == 4)
+                return GetInvalid(LAbilityHiddenUnavailable);
+            if (Legal.Ban_NoHidden8.Contains(pkm.SpecForm) && pkm.AbilityNumber == 4)
+                return GetInvalid(LAbilityHiddenUnavailable);
+
+            return VALID;
+        }
+
         /// <summary>
         /// Final checks assuming nothing else has flagged the ability.
         /// </summary>
@@ -331,13 +343,12 @@ namespace PKHeX.Core
 
         private static int GetEncounterFixedAbilityNumber(IEncounterable enc)
         {
-            switch (enc)
+            return enc switch
             {
-                case EncounterStatic s: return s.Ability;
-                case EncounterTrade t: return t.Ability;
-                case EncounterLink l: return l.Ability;
-                default: return -1;
-            }
+                EncounterStatic s => s.Ability,
+                EncounterTrade t => t.Ability,
+                _ => -1
+            };
         }
     }
 }

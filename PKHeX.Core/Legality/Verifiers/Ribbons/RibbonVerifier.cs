@@ -18,7 +18,7 @@ namespace PKHeX.Core
             var pkm = data.pkm;
             var Info = data.Info;
             // Check Unobtainable Ribbons
-            var encounterContent = (EncounterMatch as MysteryGift)?.Content ?? EncounterMatch;
+            var encounterContent = EncounterMatch is MysteryGift mg ? mg.Content : EncounterMatch;
             if (pkm.IsEgg)
             {
                 if (GetIncorrectRibbonsEgg(pkm, encounterContent))
@@ -49,9 +49,9 @@ namespace PKHeX.Core
 
             var result = new List<string>();
             if (missingRibbons.Count > 0)
-                result.Add(string.Format(LRibbonFInvalid_0, string.Join(", ", missingRibbons.Select(z => z.Replace("Ribbon", "")))));
+                result.Add(string.Format(LRibbonFMissing_0, string.Join(", ", missingRibbons.Select(z => z.Replace("Ribbon", string.Empty)))));
             if (invalidRibbons.Count > 0)
-                result.Add(string.Format(LRibbonFMissing_0, string.Join(", ", invalidRibbons.Select(z => z.Replace("Ribbon", "")))));
+                result.Add(string.Format(LRibbonFInvalid_0, string.Join(", ", invalidRibbons.Select(z => z.Replace("Ribbon", string.Empty)))));
             return result;
         }
 
@@ -63,13 +63,15 @@ namespace PKHeX.Core
             if (encounterContent is IRibbonSetEvent4 event4)
                 RibbonNames = RibbonNames.Except(event4.RibbonNames());
 
-            foreach (object RibbonValue in RibbonNames.Select(RibbonName => ReflectUtil.GetValue(pkm, RibbonName)))
+            foreach (var RibbonValue in RibbonNames.Select(RibbonName => ReflectUtil.GetValue(pkm, RibbonName)))
             {
+                if (RibbonValue is null)
+                    continue;
                 if (HasFlag(RibbonValue) || HasCount(RibbonValue))
                     return true;
 
-                bool HasFlag(object o) => o is bool z && z;
-                bool HasCount(object o) => o is int z && z > 0;
+                static bool HasFlag(object o) => o is bool z && z;
+                static bool HasCount(object o) => o is int z && z > 0;
             }
             return false;
         }
@@ -116,7 +118,7 @@ namespace PKHeX.Core
                 for (int i = 0; i < 5; ++i)
                     artist |= c3[3 | i << 2]; // any master rank ribbon
 
-                IEnumerable<RibbonResult> getMissingContestRibbons(IReadOnlyList<bool> bits, IReadOnlyList<string> names)
+                static IEnumerable<RibbonResult> getMissingContestRibbons(IReadOnlyList<bool> bits, IReadOnlyList<string> names)
                 {
                     for (int i = 0; i < bits.Count; i += 4)
                     {
@@ -159,12 +161,16 @@ namespace PKHeX.Core
                         yield return new RibbonResult(nameof(s6.RibbonCountMemoryBattle));
                 }
 
-                if (s6.RibbonBestFriends && pkm.OT_Affection < 255 && pkm.IsUntraded) // can't lower affection
-                    yield return new RibbonResult(nameof(s6.RibbonBestFriends));
+                // Gen8+ replaced with Max Friendship. Gen6/7 uses affection.
+                if (pkm.Format <= 7 && s6.RibbonBestFriends) // can't lower affection
+                {
+                    if (pkm.OT_Affection < 255 && pkm.IsUntraded)
+                        yield return new RibbonResult(nameof(s6.RibbonBestFriends));
+                }
             }
             if (pkm is IRibbonSetCommon7 s7)
             {
-                bool inhabited7 = gen <= 7;
+                bool inhabited7 = gen <= 7 && !pkm.GG;
                 var iterate = inhabited7 ? GetInvalidRibbons7Any(pkm, s7) : GetInvalidRibbonsNone(s7.RibbonBits(), s7.RibbonNames());
                 foreach (var z in iterate)
                     yield return z;
@@ -178,13 +184,20 @@ namespace PKHeX.Core
                 if (s3.RibbonEffort && gen == 5 && pkm.Format == 5) // unobtainable in Gen 5
                     yield return new RibbonResult(nameof(s3.RibbonEffort));
             }
+            if (pkm is IRibbonSetCommon8 s8)
+            {
+                bool inhabited8 = gen <= 8;
+                var iterate = inhabited8 ? GetInvalidRibbons8Any(pkm, s8) : GetInvalidRibbonsNone(s8.RibbonBits(), s8.RibbonNames());
+                foreach (var z in iterate)
+                    yield return z;
+            }
         }
 
         private static IEnumerable<RibbonResult> GetInvalidRibbons4Any(PKM pkm, IRibbonSetCommon4 s4, int gen)
         {
             if (s4.RibbonRecord)
                 yield return new RibbonResult(nameof(s4.RibbonRecord)); // Unobtainable
-            if (s4.RibbonFootprint && ((pkm.Format < 6 && gen == 5) || (gen >= 5 && pkm.CurrentLevel - pkm.Met_Level < 30)))
+            if (s4.RibbonFootprint && !CanHaveFootprintRibbon(pkm, gen))
                 yield return new RibbonResult(nameof(s4.RibbonFootprint));
 
             bool gen34 = gen == 3 || gen == 4;
@@ -205,6 +218,19 @@ namespace PKHeX.Core
             }
         }
 
+        private static bool CanHaveFootprintRibbon(PKM pkm, int gen)
+        {
+            if (gen <= 4) // Friendship Check unnecessary - can decrease after obtaining ribbon.
+                return true;
+            // Gen5: Can't obtain
+            // Gen6/7: Increase level by 30 from original level
+            if (pkm.Format >= 6 && (gen != 8 && !pkm.GG) && (pkm.CurrentLevel - pkm.Met_Level >= 30))
+                return true;
+
+            // Gen8: Can't obtain
+            return false;
+        }
+
         private static IEnumerable<RibbonResult> GetInvalidRibbons6Any(PKM pkm, IRibbonSetCommon6 s6, int gen)
         {
             foreach (var p in GetInvalidRibbons6Memory(pkm, s6, gen))
@@ -221,12 +247,16 @@ namespace PKHeX.Core
                 yield return new RibbonResult(nameof(s6.RibbonContestStar), s6.RibbonContestStar);
 
             // Each contest victory requires a contest participation; each participation gives 20 OT affection (not current trainer).
-            var affect = pkm.OT_Affection;
-            var contMemory = s6.RibbonNamesContest();
-            int contCount = 0;
-            var present = contMemory.Where((_, i) => contest[i] && affect < 20 * ++contCount);
-            foreach (var rib in present)
-                yield return new RibbonResult(rib);
+            // Affection is discarded on PK7->PK8 in favor of friendship, which can be lowered.
+            if (pkm.Format <= 7)
+            {
+                var affect = pkm.OT_Affection;
+                var contMemory = s6.RibbonNamesContest();
+                int contCount = 0;
+                var present = contMemory.Where((_, i) => contest[i] && affect < 20 * ++contCount);
+                foreach (var rib in present)
+                    yield return new RibbonResult(rib);
+            }
 
             const int mem_Chatelaine = 30;
             bool hasChampMemory = pkm.HT_Memory == mem_Chatelaine || pkm.OT_Memory == mem_Chatelaine;
@@ -296,16 +326,17 @@ namespace PKHeX.Core
 
         private static IEnumerable<RibbonResult> GetInvalidRibbons6Traded(PKM pkm, IRibbonSetCommon6 s6)
         {
-            if (s6.RibbonTraining)
+            // Medal count is wiped on transfer to pk8
+            if (s6.RibbonTraining && pkm.Format <= 7)
             {
                 const int req = 12; // only first 12
-                int count = pkm.SuperTrainingMedalCount(req);
+                int count = ((ISuperTrain)pkm).SuperTrainingMedalCount(req);
                 if (count < req)
                     yield return new RibbonResult(nameof(s6.RibbonTraining));
             }
 
             const int mem_Champion = 27;
-            bool hasChampMemory = pkm.HT_Memory == mem_Champion || pkm.OT_Memory == mem_Champion;
+            bool hasChampMemory = (pkm.Format < 8 && pkm.HT_Memory == mem_Champion) || (pkm.Gen6 && pkm.OT_Memory == mem_Champion);
             if (!hasChampMemory || s6.RibbonChampionKalos || s6.RibbonChampionG6Hoenn)
                 yield break;
 
@@ -327,13 +358,33 @@ namespace PKHeX.Core
             }
         }
 
+        private static IEnumerable<RibbonResult> GetInvalidRibbons8Any(PKM pkm, IRibbonSetCommon8 s8)
+        {
+            if (!pkm.InhabitedGeneration(8) || !((PersonalInfoSWSH)PersonalTable.SWSH[pkm.Species]).IsPresentInGame)
+            {
+                if (s8.RibbonChampionGalar)
+                    yield return new RibbonResult(nameof(s8.RibbonChampionGalar));
+                if (s8.RibbonTowerMaster && !(pkm.USUM || !pkm.IsUntraded))
+                    yield return new RibbonResult(nameof(s8.RibbonTowerMaster));
+                if (s8.RibbonMasterRank)
+                    yield return new RibbonResult(nameof(s8.RibbonMasterRank));
+            }
+            else
+            {
+                const int mem_Champion = 27;
+                bool hasChampMemory = (pkm.Format == 8 && pkm.HT_Memory == mem_Champion) || (pkm.Gen8 && pkm.OT_Memory == mem_Champion);
+                if (hasChampMemory && !s8.RibbonChampionGalar)
+                    yield return new RibbonResult(nameof(s8.RibbonChampionGalar));
+            }
+        }
+
         private static IEnumerable<RibbonResult> GetInvalidRibbonsEvent1(PKM pkm, object encounterContent)
         {
             if (!(pkm is IRibbonSetEvent3 set1))
                 yield break;
             var names = set1.RibbonNames();
             var sb = set1.RibbonBits();
-            var eb = (encounterContent as IRibbonSetEvent3).RibbonBits();
+            var eb = encounterContent is IRibbonSetEvent3 e3 ? e3.RibbonBits() : new bool[sb.Length];
 
             if (pkm.Gen3)
             {
@@ -359,7 +410,7 @@ namespace PKHeX.Core
                 yield break;
             var names = set2.RibbonNames();
             var sb = set2.RibbonBits();
-            var eb = (encounterContent as IRibbonSetEvent4).RibbonBits();
+            var eb = encounterContent is IRibbonSetEvent4 e4 ? e4.RibbonBits() : new bool[sb.Length];
 
             if (encounterContent is EncounterStatic s && s.RibbonWishing)
                 eb[1] = true; // require Wishing Ribbon
@@ -386,7 +437,7 @@ namespace PKHeX.Core
 
         private static bool IsAllowedBattleFrontier(int species, int form, int gen)
         {
-            if (gen == 4 && species == 172 && form == 1) // spiky
+            if (gen == 4 && species == (int)Species.Pichu && form == 1) // spiky
                 return false;
             return IsAllowedBattleFrontier(species);
         }

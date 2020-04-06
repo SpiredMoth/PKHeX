@@ -19,29 +19,26 @@ namespace PKHeX.Core
         protected override int DexLangFlagByteCount => 920; // 0x398 = 817*9, top off the savedata block.
         protected override int DexLangIDCount => 9; // CHT, skipping langID 6 (unused)
 
-        private IList<int> FormBaseSpecies;
+        private readonly IList<int> FormBaseSpecies;
 
-        protected Zukan7()
+        public Zukan7(SAV7SM sav, int dex, int langflag) : this(sav, dex, langflag, DexFormUtil.GetDexFormIndexSM) { }
+        public Zukan7(SAV7USUM sav, int dex, int langflag) : this(sav, dex, langflag, DexFormUtil.GetDexFormIndexUSUM) { }
+        protected Zukan7(SAV7b sav, int dex, int langflag) : this(sav, dex, langflag, DexFormUtil.GetDexFormIndexGG) { }
+
+        private Zukan7(SaveFile sav, int dex, int langflag, Func<int, int, int, int> form) : base(sav, dex, langflag)
         {
+            DexFormIndexFetcher = form;
+            FormBaseSpecies = GetFormIndexBaseSpeciesList();
+            Debug.Assert(!SAV.Exportable || BitConverter.ToUInt32(SAV.Data, PokeDex) == MAGIC);
         }
 
-        public Zukan7(SaveFile sav, int dex, int langflag)
-        {
-            SAV = sav;
-            PokeDex = dex;
-            PokeDexLanguageFlags = langflag;
-            DexFormIndexFetcher = SAV.USUM ? (Func<int, int, int, int>) SaveUtil.GetDexFormIndexSM : SaveUtil.GetDexFormIndexSM;
-            LoadDexList();
-            Debug.Assert(BitConverter.ToUInt32(SAV.Data, PokeDex) == MAGIC);
-        }
-
-        protected void LoadDexList() => FormBaseSpecies = GetFormIndexBaseSpeciesList();
+        public Func<int, int, int, int> DexFormIndexFetcher { get; }
 
         protected override void SetAllDexSeenFlags(int baseBit, int altform, int gender, bool isShiny, bool value = true)
         {
             int species = baseBit + 1;
 
-            if (species == 351) // castform
+            if (species == (int)Species.Castform)
                 isShiny = false;
 
             // Starting with Gen7, form bits are stored in the same region as the species flags.
@@ -74,6 +71,11 @@ namespace PKHeX.Core
 
         protected override bool GetSaneFormsToIterate(int species, out int formStart, out int formEnd, int formIn)
         {
+            return SanitizeFormsToIterate(species, out formStart, out formEnd, formIn, SAV is SAV7USUM);
+        }
+
+        public static bool SanitizeFormsToIterate(int species, out int formStart, out int formEnd, int formIn, bool USUM)
+        {
             // 004AA370 in Moon
             // Simplified in terms of usage -- only overrides to give all the battle forms for a pkm
             switch (species)
@@ -83,6 +85,12 @@ namespace PKHeX.Core
                     formEnd = 3;
                     return true;
 
+                case 421: // Cherrim
+                case 555: // Darmanitan
+                case 648: // Meloetta
+                case 746: // Wishiwashi
+                case 778: // Mimikyu
+                // Alolans
                 case 020: // Raticate
                 case 105: // Marowak
                     formStart = 0;
@@ -100,22 +108,13 @@ namespace PKHeX.Core
                 case 744: // Rockruff
                     break;
 
-                case 421: // Cherrim
-                case 555: // Darmanitan
-                case 648: // Meloetta
-                case 746: // Wishiwashi
-                case 778: // Mimikyu
-                    formStart = 0;
-                    formEnd = 1;
-                    return true;
-
                 case 774 when formIn <= 6: // Minior
                     break; // don't give meteor forms except the first
 
                 case 718 when formIn > 1:
                     break;
                 default:
-                    int count = SAV.USUM ? SaveUtil.GetDexFormCountUSUM(species) : SaveUtil.GetDexFormCountSM(species);
+                    int count = USUM ? DexFormUtil.GetDexFormCountUSUM(species) : DexFormUtil.GetDexFormCountSM(species);
                     formStart = formEnd = 0;
                     return count < formIn;
             }

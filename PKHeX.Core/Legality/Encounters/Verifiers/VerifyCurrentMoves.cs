@@ -4,6 +4,10 @@ using System.Linq;
 using static PKHeX.Core.LegalityCheckStrings;
 using static PKHeX.Core.LegalityAnalysis;
 
+using static PKHeX.Core.MoveSource;
+using static PKHeX.Core.Severity;
+using static PKHeX.Core.CheckIdentifier;
+
 namespace PKHeX.Core
 {
     /// <summary>
@@ -11,6 +15,12 @@ namespace PKHeX.Core
     /// </summary>
     public static class VerifyCurrentMoves
     {
+        /// <summary>
+        /// Verifies the current moves of the <see cref="pkm"/> data based on the provided <see cref="info"/>.
+        /// </summary>
+        /// <param name="pkm">Data to check</param>
+        /// <param name="info">Encounter conditions and legality info</param>
+        /// <returns>Validity of the <see cref="PKM.Moves"/></returns>
         public static CheckMoveResult[] VerifyMoves(PKM pkm, LegalInfo info)
         {
             int[] Moves = pkm.Moves;
@@ -19,32 +29,31 @@ namespace PKHeX.Core
             // Duplicate Moves Check
             VerifyNoEmptyDuplicates(Moves, res);
             if (Moves[0] == 0) // Can't have an empty moveslot for the first move.
-                res[0] = new CheckMoveResult(res[0], Severity.Invalid, LMoveSourceEmpty, CheckIdentifier.Move);
+                res[0] = new CheckMoveResult(res[0], Invalid, LMoveSourceEmpty, Move);
 
             return res;
         }
 
         private static CheckMoveResult[] ParseMovesForEncounters(PKM pkm, LegalInfo info, int[] Moves)
         {
-            if (pkm.Species == 235) // special handling for Smeargle
+            if (pkm.Species == (int)Species.Smeargle) // special handling for Smeargle
                 return ParseMovesForSmeargle(pkm, Moves, info); // Smeargle can have any moves except a few
 
             // gather valid moves for encounter species
             var restrict = new LevelUpRestriction(pkm, info);
-            info.EncounterMoves = new ValidEncounterMoves(pkm, restrict);
+            info.EncounterMoves = new ValidEncounterMoves(pkm, restrict, info.EncounterMatch);
 
-            if (info.Generation <= 3)
-                pkm.WasEgg = info.EncounterMatch.EggEncounter;
-
-            List<int> defaultG1LevelMoves = null;
-            List<int> defaultG2LevelMoves = null;
+            IReadOnlyList<int> defaultG1LevelMoves = Array.Empty<int>();
+            IReadOnlyList<int> defaultG2LevelMoves = Array.Empty<int>();
             var defaultTradeback = pkm.TradebackStatus;
             bool gb = false;
             if (info.EncounterMatch is IGeneration g && g.Generation <= 2)
             {
                 gb = true;
                 defaultG1LevelMoves = info.EncounterMoves.LevelUpMoves[1];
-                defaultG2LevelMoves = pkm.InhabitedGeneration(2) ? info.EncounterMoves.LevelUpMoves[2] : null;
+                if (pkm.InhabitedGeneration(2))
+                    defaultG2LevelMoves = info.EncounterMoves.LevelUpMoves[2];
+
                 // Generation 1 can have different minimum level in different encounter of the same species; update valid level moves
                 UpdateGen1LevelUpMoves(pkm, info.EncounterMoves, restrict.MinimumLevelGen1, g.Generation, info);
 
@@ -84,32 +93,34 @@ namespace PKHeX.Core
             return ParseMoves(pkm, source, info);
         }
 
-        private static CheckMoveResult[] ParseMovesIsEggPreRelearn(PKM pkm, int[] Moves, int[] SpecialMoves, EncounterEgg e)
+        private static CheckMoveResult[] ParseMovesIsEggPreRelearn(PKM pkm, int[] Moves, IReadOnlyList<int> SpecialMoves, EncounterEgg e)
         {
-            EggInfoSource infoset = new EggInfoSource(pkm, SpecialMoves, e);
+            var infoset = new EggInfoSource(pkm, SpecialMoves, e);
             return VerifyPreRelearnEggBase(pkm, Moves, infoset);
         }
 
         private static CheckMoveResult[] ParseMovesWasEggPreRelearn(PKM pkm, int[] Moves, LegalInfo info, EncounterEgg e)
         {
             var EventEggMoves = GetSpecialMoves(info.EncounterMatch);
+            bool notEvent = EventEggMoves.Count == 0;
             // Level up moves could not be inherited if Ditto is parent,
-            // that means genderless species and male only species except Nidoran and Volbeat (they breed with female nidoran and illumise) could not have level up moves as an egg
-            var AllowLevelUp = (pkm.PersonalInfo.Gender > 0 && pkm.PersonalInfo.Gender < 255) || Legal.MixedGenderBreeding.Contains(e.Species);
+            // that means genderless species and male only species (except Nidoran-M and Volbeat; they breed with Nidoran-F and Illumise) could not have level up moves as an egg
+            var pi = pkm.PersonalInfo;
+            var AllowLevelUp = notEvent && !pi.Genderless && !(pi.OnlyMale && Legal.MixedGenderBreeding.Contains(e.Species));
             int BaseLevel = AllowLevelUp ? 100 : e.LevelMin;
-            var LevelUp = Legal.GetBaseEggMoves(pkm, e.Species, e.Version, BaseLevel);
+            var LevelUp = Legal.GetBaseEggMoves(pkm, e.Species, e.Form, e.Version, BaseLevel);
 
             var TradebackPreevo = pkm.Format == 2 && info.EncounterMatch.Species > 151;
             var NonTradebackLvlMoves = TradebackPreevo
                 ? Legal.GetExclusivePreEvolutionMoves(pkm, info.EncounterMatch.Species, info.EvoChainsAllGens[2], 2, e.Version).Where(m => m > Legal.MaxMoveID_1).ToArray()
                 : Array.Empty<int>();
 
-            var Egg = MoveEgg.GetEggMoves(pkm, e.Species, pkm.AltForm, e.Version);
+            var Egg = MoveEgg.GetEggMoves(pkm, e.Species, e.Form, e.Version);
             if (info.Generation < 3 && pkm.Format >= 7 && pkm.VC1)
                 Egg = Egg.Where(m => m <= Legal.MaxMoveID_1).ToArray();
 
             bool volt = (info.Generation > 3 || e.Version == GameVersion.E) && Legal.LightBall.Contains(pkm.Species);
-            var Special = volt && EventEggMoves.Length == 0 ? new[] { 344 } : Array.Empty<int>(); // Volt Tackle for bred Pichu line
+            var Special = volt && notEvent ? new[] { 344 } : Array.Empty<int>(); // Volt Tackle for bred Pichu line
 
             var source = new MoveParseSource
             {
@@ -130,8 +141,8 @@ namespace PKHeX.Core
             for (int i = 0; i < 4; i++)
             {
                 res[i] = Legal.InvalidSketch.Contains(Moves[i])
-                    ? new CheckMoveResult(MoveSource.Unknown, pkm.Format, Severity.Invalid, LMoveSourceInvalidSketch, CheckIdentifier.Move)
-                    : new CheckMoveResult(MoveSource.Sketch, pkm.Format, CheckIdentifier.Move);
+                    ? new CheckMoveResult(Unknown, pkm.Format, Invalid, LMoveSourceInvalidSketch, Move)
+                    : new CheckMoveResult(Sketch, pkm.Format, Move);
             }
 
             return res;
@@ -151,7 +162,7 @@ namespace PKHeX.Core
         {
             if (pkm.IsEgg && info.EncounterMatch is EncounterEgg egg)
             {
-                int[] SpecialMoves = GetSpecialMoves(info.EncounterMatch);
+                var SpecialMoves = GetSpecialMoves(info.EncounterMatch);
                 return ParseMovesIsEggPreRelearn(pkm, Moves, SpecialMoves, egg);
             }
             if (info.EncounterMatch is EncounterEgg e)
@@ -164,13 +175,13 @@ namespace PKHeX.Core
 
         private static CheckMoveResult[] ParseMovesGenGB(PKM pkm, int[] Moves, LegalInfo info)
         {
-            CheckMoveResult[] res = new CheckMoveResult[4];
+            var res = new CheckMoveResult[4];
             var G1Encounter = info.EncounterMatch;
             if (G1Encounter == null)
                 return ParseMovesSpecialMoveset(pkm, Moves, info);
             var InitialMoves = Array.Empty<int>();
-            int[] SpecialMoves = GetSpecialMoves(info.EncounterMatch);
-            var games = info.EncounterMatch is IGeneration g && g.Generation == 1 ? GBRestrictions.GetGen1Versions(info) : GBRestrictions.GetGen2Versions(info);
+            var SpecialMoves = GetSpecialMoves(info.EncounterMatch);
+            var games = info.EncounterMatch is IGeneration g && g.Generation == 1 ? GBRestrictions.GetGen1Versions(info) : GBRestrictions.GetGen2Versions(info, pkm.Korean);
             foreach (var ver in games)
             {
                 var VerInitialMoves = MoveLevelUp.GetEncounterMoves(G1Encounter.Species, 0, G1Encounter.LevelMin, ver);
@@ -201,9 +212,9 @@ namespace PKHeX.Core
             return ParseMoves(pkm, source, info);
         }
 
-        private static int[] GetSpecialMoves(IEncounterable EncounterMatch)
+        private static IReadOnlyList<int> GetSpecialMoves(IEncounterable EncounterMatch)
         {
-            if (EncounterMatch is IMoveset mg && mg.Moves != null)
+            if (EncounterMatch is IMoveset mg)
                 return mg.Moves;
             return Array.Empty<int>();
         }
@@ -217,15 +228,14 @@ namespace PKHeX.Core
             };
 
             if (info.EncounterMatch is EncounterEgg e)
-                source.EggMoveSource = MoveEgg.GetEggMoves(pkm, e.Species, pkm.AltForm, e.Version);
+                source.EggMoveSource = MoveEgg.GetEggMoves(pkm, e.Species, e.Form, e.Version);
 
-            CheckMoveResult[] res = ParseMoves(pkm, source, info);
-
-            int[] RelearnMoves = pkm.RelearnMoves;
+            var res = ParseMoves(pkm, source, info);
+            var relearn = pkm.RelearnMoves;
             for (int i = 0; i < 4; i++)
             {
-                if ((pkm.IsEgg || res[i].Flag) && !RelearnMoves.Contains(Moves[i]))
-                    res[i] = new CheckMoveResult(res[i], Severity.Invalid, string.Format(LMoveRelearnFMiss_0, res[i].Comment), res[i].Identifier);
+                if ((pkm.IsEgg || res[i].Flag) && !relearn.Contains(Moves[i]))
+                    res[i] = new CheckMoveResult(res[i], Invalid, string.Format(LMoveRelearnFMiss_0, res[i].Comment), res[i].Identifier);
             }
 
             return res;
@@ -233,24 +243,24 @@ namespace PKHeX.Core
 
         private static CheckMoveResult[] ParseMoves(PKM pkm, MoveParseSource source, LegalInfo info)
         {
-            CheckMoveResult[] res = new CheckMoveResult[4];
-            bool AllParsed() => res.All(r => r != null);
+            var res = new CheckMoveResult[4];
+            bool AllParsed() => res.All(z => z != null);
             var required = pkm.Format != 1 ? 1 : GBRestrictions.GetRequiredMoveCount(pkm, source.CurrentMoves, info, source.Base);
 
             // Check empty moves and relearn moves before generation specific moves
             for (int m = 0; m < 4; m++)
             {
                 if (source.CurrentMoves[m] == 0)
-                    res[m] = new CheckMoveResult(MoveSource.None, pkm.Format, m < required ? Severity.Fishy : Severity.Valid, LMoveSourceEmpty, CheckIdentifier.Move);
+                    res[m] = new CheckMoveResult(None, pkm.Format, m < required ? Fishy : Valid, LMoveSourceEmpty, Move);
                 else if (info.EncounterMoves.Relearn.Contains(source.CurrentMoves[m]))
-                    res[m] = new CheckMoveResult(MoveSource.Relearn, info.Generation, Severity.Valid, LMoveSourceRelearn, CheckIdentifier.Move) { Flag = true };
+                    res[m] = new CheckMoveResult(Relearn, info.Generation, Valid, LMoveSourceRelearn, Move) { Flag = true };
             }
 
             if (AllParsed())
                 return res;
 
             // Encapsulate arguments to simplify method calls
-            var moveInfo = new LearnInfo(pkm) { Source = source };
+            var moveInfo = new LearnInfo(pkm, source);
             // Check moves going backwards, marking the move valid in the most current generation when it can be learned
             int[] generations = GetGenMovesCheckOrder(pkm);
             if (pkm.Format <= 2)
@@ -264,13 +274,13 @@ namespace PKHeX.Core
                     return res;
             }
 
-            if (pkm.Species == 292 && info.Generation <= 4)
+            if (pkm.Species == (int)Species.Shedinja && info.Generation <= 4)
                 ParseShedinjaEvolveMoves(pkm, res, source.CurrentMoves);
 
             for (int m = 0; m < 4; m++)
             {
                 if (res[m] == null)
-                    res[m] = new CheckMoveResult(MoveSource.Unknown, info.Generation, Severity.Invalid, LMoveSourceInvalid, CheckIdentifier.Move);
+                    res[m] = new CheckMoveResult(Unknown, info.Generation, Invalid, LMoveSourceInvalid, Move);
             }
             return res;
         }
@@ -285,21 +295,21 @@ namespace PKHeX.Core
 
             switch (gen)
             {
-                case 3:
-                case 4:
-                    if (pkm.Format > gen)
-                        FlagIncompatibleTransferHMs(res, learnInfo.Source.CurrentMoves, gen, HMLearned, KnowDefogWhirlpool);
-                    break;
-
                 case 1:
                 case 2:
                     ParseMovesByGeneration12(pkm, res, learnInfo.Source.CurrentMoves, gen, info, learnInfo);
+                    break;
+
+                case 3:
+                case 4:
+                    if (pkm.Format > gen)
+                        FlagIncompatibleTransferHMs45(res, learnInfo.Source.CurrentMoves, gen, HMLearned, KnowDefogWhirlpool);
                     break;
             }
 
             // Pokemon that evolved by leveling up while learning a specific move
             // This pokemon could only have 3 moves from preevolutions that are not the move used to evolved
-            // including special and eggs moves before realearn generations
+            // including special and eggs moves before relearn generations
             if (Legal.SpeciesEvolutionWithMove.Contains(pkm.Species))
                 ParseEvolutionLevelupMove(pkm, res, learnInfo.Source.CurrentMoves, info);
         }
@@ -320,36 +330,41 @@ namespace PKHeX.Core
                 {
                     if (gen == 2 && !native && move > Legal.MaxMoveID_1 && pkm.VC1)
                     {
-                        res[m] = new CheckMoveResult(MoveSource.Unknown, gen, Severity.Invalid, LMoveSourceInvalid, CheckIdentifier.Move);
+                        res[m] = new CheckMoveResult(Unknown, gen, Invalid, LMoveSourceInvalid, Move);
                         continue;
                     }
                     if (gen == 2 && learnInfo.Source.EggMoveSource.Contains(move))
-                        res[m] = new CheckMoveResult(MoveSource.EggMove, gen, Severity.Valid, LMoveSourceEgg, CheckIdentifier.Move);
+                        res[m] = new CheckMoveResult(EggMove, gen, Valid, LMoveSourceEgg, Move);
                     else if (learnInfo.Source.Base.Contains(move))
-                        res[m] = new CheckMoveResult(MoveSource.Initial, gen, Severity.Valid, native ? LMoveSourceDefault : string.Format(LMoveFDefault_0, gen), CheckIdentifier.Move);
+                        res[m] = new CheckMoveResult(Initial, gen, Valid, native ? LMoveSourceDefault : string.Format(LMoveFDefault_0, gen), Move);
                 }
                 if (info.EncounterMoves.LevelUpMoves[gen].Contains(move))
-                    res[m] = new CheckMoveResult(MoveSource.LevelUp, gen, Severity.Valid, native ? LMoveSourceLevelUp : string.Format(LMoveFLevelUp_0, gen), CheckIdentifier.Move);
+                    res[m] = new CheckMoveResult(LevelUp, gen, Valid, native ? LMoveSourceLevelUp : string.Format(LMoveFLevelUp_0, gen), Move);
                 else if (info.EncounterMoves.TMHMMoves[gen].Contains(move))
-                    res[m] = new CheckMoveResult(MoveSource.TMHM, gen, Severity.Valid, native ? LMoveSourceTMHM : string.Format(LMoveFTMHM_0, gen), CheckIdentifier.Move);
+                    res[m] = new CheckMoveResult(TMHM, gen, Valid, native ? LMoveSourceTMHM : string.Format(LMoveFTMHM_0, gen), Move);
                 else if (info.EncounterMoves.TutorMoves[gen].Contains(move))
-                    res[m] = new CheckMoveResult(MoveSource.Tutor, gen, Severity.Valid, native ? LMoveSourceTutor : string.Format(LMoveFTutor_0, gen), CheckIdentifier.Move);
+                    res[m] = new CheckMoveResult(Tutor, gen, Valid, native ? LMoveSourceTutor : string.Format(LMoveFTutor_0, gen), Move);
                 else if (gen == info.Generation && learnInfo.Source.SpecialSource.Contains(move))
-                    res[m] = new CheckMoveResult(MoveSource.Special, gen, Severity.Valid, LMoveSourceSpecial, CheckIdentifier.Move);
+                    res[m] = new CheckMoveResult(Special, gen, Valid, LMoveSourceSpecial, Move);
+                else if (gen >= 8 && MoveEgg.GetIsSharedEggMove(pkm, gen, move))
+                    res[m] = new CheckMoveResult(Shared, gen, Valid, native ? LMoveSourceShared : string.Format(LMoveSourceSharedF, gen), Move);
 
-                if (res[m] == null || gen >= 3)
+                if (gen >= 3 || !IsCheckValid(res[m]))
                     continue;
 
-                if (res[m].Valid && gen == 2 && learnInfo.Source.NonTradeBackLevelUpMoves.Contains(m))
+                // Gen1/Gen2 only below
+                if (gen == 2 && learnInfo.Source.NonTradeBackLevelUpMoves.Contains(m))
+                {
                     learnInfo.Gen2PreevoMoves.Add(m);
-                if (res[m].Valid && gen == 1)
+                }
+                else if (gen == 1)
                 {
                     learnInfo.Gen1Moves.Add(m);
                     if (learnInfo.Gen2PreevoMoves.Count != 0)
                         learnInfo.MixedGen12NonTradeback = true;
                 }
 
-                if (res[m].Valid && gen <= 2 && pkm.TradebackStatus == TradebackType.Any && info.Generation != gen)
+                if (pkm.TradebackStatus == TradebackType.Any && info.Generation != gen)
                     pkm.TradebackStatus = TradebackType.WasTradeback;
             }
         }
@@ -360,10 +375,10 @@ namespace PKHeX.Core
             if (learnInfo.MixedGen12NonTradeback)
             {
                 foreach (int m in learnInfo.Gen1Moves)
-                    res[m] = new CheckMoveResult(res[m], Severity.Invalid, LG1MoveExclusive, CheckIdentifier.Move);
+                    res[m] = new CheckMoveResult(res[m], Invalid, LG1MoveExclusive, Move);
 
                 foreach (int m in learnInfo.Gen2PreevoMoves)
-                    res[m] = new CheckMoveResult(res[m], Severity.Invalid, LG1TradebackPreEvoMove, CheckIdentifier.Move);
+                    res[m] = new CheckMoveResult(res[m], Invalid, LG1TradebackPreEvoMove, Move);
             }
 
             if (gen == 1 && pkm.Format == 1 && pkm.Gen1_NotTradeback)
@@ -396,12 +411,12 @@ namespace PKHeX.Core
 
                 if (learnInfo.IsGen2Pkm && learnInfo.Gen1Moves.Count != 0 && moves[m] > Legal.MaxMoveID_1)
                 {
-                    res[m] = new CheckMoveResult(MoveSource.InheritLevelUp, gen, Severity.Invalid, LG1MoveTradeback, CheckIdentifier.Move);
+                    res[m] = new CheckMoveResult(InheritLevelUp, gen, Invalid, LG1MoveTradeback, Move);
                     learnInfo.MixedGen12NonTradeback = true;
                 }
                 else
                 {
-                    res[m] = new CheckMoveResult(MoveSource.InheritLevelUp, gen, Severity.Valid, LMoveEggLevelUp, CheckIdentifier.Move);
+                    res[m] = new CheckMoveResult(InheritLevelUp, gen, Valid, LMoveEggLevelUp, Move);
                 }
                 learnInfo.LevelUpEggMoves.Add(m);
                 if (pkm.TradebackStatus == TradebackType.Any && pkm.GenNumber == 1)
@@ -418,41 +433,42 @@ namespace PKHeX.Core
             {
                 if (IsCheckValid(res[m]))
                     continue;
-                if (moves[m] == 0)
+                int move = moves[m];
+                if (move == 0)
                     continue;
 
-                bool wasEggMove = learnInfo.Source.EggMoveSource.Contains(moves[m]);
+                bool wasEggMove = learnInfo.Source.EggMoveSource.Contains(move);
                 if (wasEggMove)
                 {
                     // To learn exclusive generation 1 moves the pokemon was tradeback, but it can't be trade to generation 1
                     // without removing moves above MaxMoveID_1, egg moves above MaxMoveID_1 and gen 1 moves are incompatible
-                    if (learnInfo.IsGen2Pkm && learnInfo.Gen1Moves.Count != 0 && moves[m] > Legal.MaxMoveID_1)
+                    if (learnInfo.IsGen2Pkm && learnInfo.Gen1Moves.Count != 0 && move > Legal.MaxMoveID_1)
                     {
-                        res[m] = new CheckMoveResult(MoveSource.EggMove, gen, Severity.Invalid, LG1MoveTradeback, CheckIdentifier.Move);
+                        res[m] = new CheckMoveResult(EggMove, gen, Invalid, LG1MoveTradeback, Move);
                         learnInfo.MixedGen12NonTradeback = true;
                     }
                     else
                     {
-                        res[m] = new CheckMoveResult(MoveSource.EggMove, gen, Severity.Valid, LMoveSourceEgg, CheckIdentifier.Move) { Flag = true };
+                        res[m] = new CheckMoveResult(EggMove, gen, Valid, LMoveSourceEgg, Move) { Flag = true };
                     }
 
                     learnInfo.EggMovesLearned.Add(m);
                     if (pkm.TradebackStatus == TradebackType.Any && pkm.GenNumber == 1)
                         pkm.TradebackStatus = TradebackType.WasTradeback;
                 }
-                if (!learnInfo.Source.EggEventSource.Contains(moves[m]))
+                if (!learnInfo.Source.EggEventSource.Contains(move))
                     continue;
 
                 if (!wasEggMove)
                 {
-                    if (learnInfo.IsGen2Pkm && learnInfo.Gen1Moves.Count != 0 && moves[m] > Legal.MaxMoveID_1)
+                    if (learnInfo.IsGen2Pkm && learnInfo.Gen1Moves.Count != 0 && move > Legal.MaxMoveID_1)
                     {
-                        res[m] = new CheckMoveResult(MoveSource.SpecialEgg, gen, Severity.Invalid, LG1MoveTradeback, CheckIdentifier.Move);
+                        res[m] = new CheckMoveResult(SpecialEgg, gen, Invalid, LG1MoveTradeback, Move);
                         learnInfo.MixedGen12NonTradeback = true;
                     }
                     else
                     {
-                        res[m] = new CheckMoveResult(MoveSource.SpecialEgg, gen, Severity.Valid, LMoveSourceEggEvent, CheckIdentifier.Move);
+                        res[m] = new CheckMoveResult(SpecialEgg, gen, Valid, LMoveSourceEggEvent, Move);
                     }
                 }
                 if (pkm.TradebackStatus == TradebackType.Any && pkm.GenNumber == 1)
@@ -475,22 +491,22 @@ namespace PKHeX.Core
                 foreach (int m in IncompatibleEggMoves)
                 {
                     if (learnInfo.EventEggMoves.Contains(m) && !learnInfo.EggMovesLearned.Contains(m))
-                        res[m] = new CheckMoveResult(res[m], Severity.Invalid, LMoveEggIncompatibleEvent, CheckIdentifier.Move);
+                        res[m] = new CheckMoveResult(res[m], Invalid, LMoveEggIncompatibleEvent, Move);
                     else if (!learnInfo.EventEggMoves.Contains(m) && learnInfo.EggMovesLearned.Contains(m))
-                        res[m] = new CheckMoveResult(res[m], Severity.Invalid, LMoveEggIncompatible, CheckIdentifier.Move);
+                        res[m] = new CheckMoveResult(res[m], Invalid, LMoveEggIncompatible, Move);
                     else if (!learnInfo.EventEggMoves.Contains(m) && learnInfo.LevelUpEggMoves.Contains(m))
-                        res[m] = new CheckMoveResult(res[m], Severity.Invalid, LMoveEventEggLevelUp, CheckIdentifier.Move);
+                        res[m] = new CheckMoveResult(res[m], Invalid, LMoveEventEggLevelUp, Move);
                 }
             }
-            // If there is no incompatibility with event egg check that there is no inherited move in gift eggs and event eggs
             else if (RegularEggMovesLearned.Count != 0 && (pkm.WasGiftEgg || pkm.WasEventEgg))
             {
+                // Event eggs cannot inherit moves from parents; they are not bred.
                 foreach (int m in RegularEggMovesLearned)
                 {
                     if (learnInfo.EggMovesLearned.Contains(m))
-                        res[m] = new CheckMoveResult(res[m], Severity.Invalid, pkm.WasGiftEgg ? LMoveEggMoveGift : LMoveEggInvalidEvent, CheckIdentifier.Move);
+                        res[m] = new CheckMoveResult(res[m], Invalid, pkm.WasGiftEgg ? LMoveEggMoveGift : LMoveEggInvalidEvent, Move);
                     else if (learnInfo.LevelUpEggMoves.Contains(m))
-                        res[m] = new CheckMoveResult(res[m], Severity.Invalid, pkm.WasGiftEgg ? LMoveEggInvalidEventLevelUpGift : LMoveEggInvalidEventLevelUp, CheckIdentifier.Move);
+                        res[m] = new CheckMoveResult(res[m], Invalid, pkm.WasGiftEgg ? LMoveEggInvalidEventLevelUpGift : LMoveEggInvalidEventLevelUp, Move);
                 }
             }
         }
@@ -503,20 +519,20 @@ namespace PKHeX.Core
             for (int m = 0; m < 4; m++)
             {
                 if (incompatible.Contains(moves[m]))
-                    res[m] = new CheckMoveResult(res[m], Severity.Invalid, LG1MoveLearnSameLevel, CheckIdentifier.Move);
+                    res[m] = new CheckMoveResult(res[m], Invalid, LG1MoveLearnSameLevel, Move);
             }
         }
 
         private static IList<int> GetIncompatibleRBYMoves(PKM pkm, int[] moves)
         {
-            // Check moves that are learned at the same level in red/blue and yellow, these are illegal because there is no move reminder
-            // There are only two incompatibilites; there is no illegal combination in generation 2+.
+            // Check moves that are learned at the same level in Red/Blue and Yellow, these are illegal because there is no Move Reminder in Gen1.
+            // There are only two incompatibilities for Gen1; there are no illegal combination in Gen2.
 
             switch (pkm.Species)
             {
                 // Vaporeon in Yellow learns Mist and Haze at level 42, Mist can only be learned if it leveled up in the daycare
                 // Vaporeon in Red/Blue learns Acid Armor at level 42 and level 47 in Yellow
-                case 134 when pkm.CurrentLevel < 47 && moves.Contains(151):
+                case (int)Species.Vaporeon when pkm.CurrentLevel < 47 && moves.Contains(151):
                 {
                     var incompatible = new List<int>(3);
                     if (moves.Contains(54))
@@ -530,14 +546,14 @@ namespace PKHeX.Core
 
                 // Flareon in Yellow learns Smog at level 42
                 // Flareon in Red Blue learns Leer at level 42 and level 47 in Yellow
-                case 136 when pkm.CurrentLevel < 47 && moves.Contains(43) && moves.Contains(123):
+                case (int)Species.Flareon when pkm.CurrentLevel < 47 && moves.Contains(43) && moves.Contains(123):
                     return new[] {43, 123};
-            }
 
-            return Array.Empty<int>();
+                default: return Array.Empty<int>();
+            }
         }
 
-        private static void ParseEvolutionsIncompatibleMoves(PKM pkm, IList<CheckMoveResult> res, int[] moves, List<int> tmhm)
+        private static void ParseEvolutionsIncompatibleMoves(PKM pkm, IList<CheckMoveResult> res, IReadOnlyList<int> moves, IReadOnlyList<int> tmhm)
         {
             GBRestrictions.GetIncompatibleEvolutionMoves(pkm, moves, tmhm,
                 out var prevSpeciesID,
@@ -552,9 +568,9 @@ namespace PKHeX.Core
             for (int m = 0; m < 4; m++)
             {
                 if (incompatCurr.Contains(moves[m]))
-                    res[m] = new CheckMoveResult(res[m], Severity.Invalid, string.Format(LMoveEvoFLower, curr, prev), CheckIdentifier.Move);
+                    res[m] = new CheckMoveResult(res[m], Invalid, string.Format(LMoveEvoFLower, curr, prev), Move);
                 if (incompatPrev.Contains(moves[m]))
-                    res[m] = new CheckMoveResult(res[m], Severity.Invalid, string.Format(LMoveEvoFHigher, curr, prev), CheckIdentifier.Move);
+                    res[m] = new CheckMoveResult(res[m], Invalid, string.Format(LMoveEvoFHigher, curr, prev), Move);
             }
         }
 
@@ -563,7 +579,8 @@ namespace PKHeX.Core
             var ShedinjaEvoMovesLearned = new List<int>();
             for (int gen = Math.Min(pkm.Format, 4); gen >= 3; gen--)
             {
-                var ninjaskMoves = Legal.GetShedinjaEvolveMoves(pkm, gen);
+                var maxLevel = pkm.CurrentLevel;
+                var ninjaskMoves = Legal.GetShedinjaEvolveMoves(pkm, gen, maxLevel);
                 bool native = gen == pkm.Format;
                 for (int m = 0; m < 4; m++)
                 {
@@ -574,7 +591,7 @@ namespace PKHeX.Core
                         continue;
 
                     var msg = native ? LMoveNincadaEvo : string.Format(LMoveNincadaEvoF_0, gen);
-                    res[m] = new CheckMoveResult(MoveSource.ShedinjaEvo, gen, Severity.Valid, msg, CheckIdentifier.Move);
+                    res[m] = new CheckMoveResult(ShedinjaEvo, gen, Valid, msg, Move);
                     ShedinjaEvoMovesLearned.Add(m);
                 }
             }
@@ -585,28 +602,28 @@ namespace PKHeX.Core
             {
                 // Can't have more than one Ninjask exclusive move on Shedinja
                 foreach (int m in ShedinjaEvoMovesLearned)
-                    res[m] = new CheckMoveResult(res[m], Severity.Invalid, LMoveNincada, CheckIdentifier.Move);
+                    res[m] = new CheckMoveResult(res[m], Invalid, LMoveNincada, Move);
                 return;
             }
 
             // Double check that the Ninjask move level isn't less than any Nincada move level
             int move = ShedinjaEvoMovesLearned[0];
             int g = res[move].Generation;
-            int levelJ = Legal.GetShedinjaMoveLevel(291, moves[move], g);
+            int levelJ = Legal.GetShedinjaMoveLevel((int)Species.Ninjask, moves[move], g);
 
             for (int m = 0; m < 4; m++)
             {
                 if (m != move)
                     continue;
-                if (res[m].Source != MoveSource.LevelUp)
+                if (res[m].Source != LevelUp)
                     continue;
-                int levelS = Legal.GetShedinjaMoveLevel(292, moves[m], res[m].Generation);
+                int levelS = Legal.GetShedinjaMoveLevel((int)Species.Shedinja, moves[m], res[m].Generation);
                 if (levelS > 0)
                     continue;
 
-                int levelN = Legal.GetShedinjaMoveLevel(290, moves[m], res[m].Generation);
+                int levelN = Legal.GetShedinjaMoveLevel((int)Species.Nincada, moves[m], res[m].Generation);
                 if (levelN > levelJ)
-                    res[m] = new CheckMoveResult(res[m], Severity.Invalid, string.Format(LMoveEvoFHigher, SpeciesStrings[290], SpeciesStrings[291]), CheckIdentifier.Move);
+                    res[m] = new CheckMoveResult(res[m], Invalid, string.Format(LMoveEvoFHigher, SpeciesStrings[(int)Species.Nincada], SpeciesStrings[(int)Species.Ninjask]), Move);
             }
         }
 
@@ -625,26 +642,26 @@ namespace PKHeX.Core
             // Add the evolution moves to valid moves in case some of these moves could not be learned after evolving
             switch (pkm.Species)
             {
-                case 122: // Mr. Mime (Mime Jr with Mimic)
-                case 185: // Sudowoodo (Bonsly with Mimic)
+                case (int)Species.MrMime: // Mr. Mime (Mime Jr with Mimic)
+                case (int)Species.Sudowoodo: // Sudowoodo (Bonsly with Mimic)
                     ValidMoves.Add(102);
                     break;
-                case 424: // Ambipom (Aipom with Double Hit)
+                case (int)Species.Ambipom: // Ambipom (Aipom with Double Hit)
                     ValidMoves.Add(458);
                     break;
-                case 463: // Lickilicky (Lickitung with Rollout)
+                case (int)Species.Lickilicky: // Lickilicky (Lickitung with Rollout)
                     ValidMoves.Add(205);
                     break;
-                case 465: // Tangrowth (Tangela with Ancient Power)
-                case 469: // Yanmega (Yamma with Ancient Power)
-                case 473: // Mamoswine (Piloswine with Ancient Power)
+                case (int)Species.Tangrowth: // Tangrowth (Tangela with Ancient Power)
+                case (int)Species.Yanmega: // Yanmega (Yanma with Ancient Power)
+                case (int)Species.Mamoswine: // Mamoswine (Piloswine with Ancient Power)
                     ValidMoves.Add(246);
                     break;
-                case 700: // Sylveon (Eevee with Fairy Move)
+                case (int)Species.Sylveon: // Sylveon (Eevee with Fairy Move)
                     // Add every fairy moves without cheking if eevee learn it or not, pokemon moves are determined legal before this function
                     ValidMoves.AddRange(Legal.FairyMoves);
                     break;
-                case 763: // Tsareena (Steenee with Stomp)
+                case (int)Species.Tsareena: // Tsareena (Steenee with Stomp)
                     ValidMoves.Add(023);
                     break;
             }
@@ -653,7 +670,7 @@ namespace PKHeX.Core
                 return;
 
             for (int m = 0; m < 4; m++)
-                res[m] = new CheckMoveResult(res[m], Severity.Invalid, string.Format(LMoveEvoFCombination_0, SpeciesStrings[pkm.Species]), CheckIdentifier.Move);
+                res[m] = new CheckMoveResult(res[m], Invalid, string.Format(LMoveEvoFCombination_0, SpeciesStrings[pkm.Species]), Move);
         }
 
         private static void GetHMCompatibility(PKM pkm, IReadOnlyList<CheckResult> res, int gen, IReadOnlyList<int> moves, out bool[] HMLearned, out bool KnowDefogWhirlpool)
@@ -681,7 +698,7 @@ namespace PKHeX.Core
         private static bool IsCheckInvalid(CheckResult chk) => !(chk?.Valid ?? false);
         private static bool IsCheckValid(CheckResult chk) => chk?.Valid ?? false;
 
-        private static void FlagIncompatibleTransferHMs(CheckMoveResult[] res, int[] moves, int gen, bool[] HMLearned, bool KnowDefogWhirlpool)
+        private static void FlagIncompatibleTransferHMs45(CheckMoveResult[] res, int[] moves, int gen, bool[] HMLearned, bool KnowDefogWhirlpool)
         {
             // After all the moves from the generations 3 and 4,
             // including egg moves if is the origin generation because some hidden moves are also special egg moves in gen 3
@@ -695,7 +712,7 @@ namespace PKHeX.Core
                     for (int i = 0; i < 4; i++) // flag both moves
                     {
                         if (IsDefogWhirl(moves[i]))
-                            res[i] = new CheckMoveResult(res[i], Severity.Invalid, LTransferMoveG4HM, CheckIdentifier.Move);
+                            res[i] = new CheckMoveResult(res[i], Invalid, LTransferMoveG4HM, Move);
                     }
                 }
             }
@@ -704,7 +721,7 @@ namespace PKHeX.Core
             for (int i = 0; i < HMLearned.Length; i++)
             {
                 if (HMLearned[i] && IsCheckValid(res[i]))
-                    res[i] = new CheckMoveResult(res[i], Severity.Invalid, string.Format(LTransferMoveHM, gen, gen + 1), CheckIdentifier.Move);
+                    res[i] = new CheckMoveResult(res[i], Invalid, string.Format(LTransferMoveHM, gen, gen + 1), Move);
             }
         }
 
@@ -722,13 +739,13 @@ namespace PKHeX.Core
             {
                 if (infoset.Base.Contains(Moves[i]))
                 {
-                    res[i] = new CheckMoveResult(MoveSource.Initial, gen, Severity.Valid, LMoveRelearnEgg, CheckIdentifier.Move);
+                    res[i] = new CheckMoveResult(Initial, gen, Valid, LMoveRelearnEgg, Move);
                     continue;
                 }
 
                 // mark remaining base egg moves missing
                 for (int z = i; z < reqBase; z++)
-                    res[z] = new CheckMoveResult(MoveSource.Initial, gen, Severity.Invalid, LMoveRelearnEggMissing, CheckIdentifier.Move);
+                    res[z] = new CheckMoveResult(Initial, gen, Invalid, LMoveRelearnEggMissing, Move);
 
                 // provide the list of suggested base moves for the last required slot
                 sb.Append(string.Join(", ", GetMoveNames(infoset.Base)));
@@ -742,13 +759,13 @@ namespace PKHeX.Core
             {
                 if (infoset.Special.Contains(Moves[i]))
                 {
-                    res[i] = new CheckMoveResult(MoveSource.SpecialEgg, gen, Severity.Valid, LMoveSourceEggEvent, CheckIdentifier.Move);
+                    res[i] = new CheckMoveResult(SpecialEgg, gen, Valid, LMoveSourceEggEvent, Move);
                     continue;
                 }
 
                 // Not in special moves, mark remaining special egg moves missing
                 for (int z = i; z < endSpecial; z++)
-                    res[z] = new CheckMoveResult(MoveSource.SpecialEgg, gen, Severity.Invalid, LMoveEggMissing, CheckIdentifier.Move);
+                    res[z] = new CheckMoveResult(SpecialEgg, gen, Invalid, LMoveEggMissing, Move);
 
                 // provide the list of suggested base moves and species moves for the last required slot
                 if (sb.Length == 0)
@@ -762,21 +779,21 @@ namespace PKHeX.Core
                 res[reqBase > 0 ? reqBase - 1 : 0].Comment = string.Format(Environment.NewLine + LMoveFExpect_0, sb);
 
             // Inherited moves appear after the required base moves.
-            var AllowInheritedSeverity = infoset.AllowInherited ? Severity.Valid : Severity.Invalid;
+            var AllowInheritedSeverity = infoset.AllowInherited ? Valid : Invalid;
             for (int i = reqBase + infoset.Special.Count; i < 4; i++)
             {
                 if (Moves[i] == 0) // empty
-                    res[i] = new CheckMoveResult(MoveSource.None, gen, Severity.Valid, LMoveSourceEmpty, CheckIdentifier.Move);
+                    res[i] = new CheckMoveResult(None, gen, Valid, LMoveSourceEmpty, Move);
                 else if (infoset.Egg.Contains(Moves[i])) // inherited egg move
-                    res[i] = new CheckMoveResult(MoveSource.EggMove, gen, AllowInheritedSeverity, infoset.AllowInherited ? LMoveEggInherited : LMoveEggInvalidEvent, CheckIdentifier.Move);
+                    res[i] = new CheckMoveResult(EggMove, gen, AllowInheritedSeverity, infoset.AllowInherited ? LMoveEggInherited : LMoveEggInvalidEvent, Move);
                 else if (infoset.LevelUp.Contains(Moves[i])) // inherited lvl moves
-                    res[i] = new CheckMoveResult(MoveSource.InheritLevelUp, gen, AllowInheritedSeverity, infoset.AllowInherited ? LMoveEggLevelUp : LMoveEggInvalidEventLevelUp, CheckIdentifier.Move);
+                    res[i] = new CheckMoveResult(InheritLevelUp, gen, AllowInheritedSeverity, infoset.AllowInherited ? LMoveEggLevelUp : LMoveEggInvalidEventLevelUp, Move);
                 else if (infoset.TMHM.Contains(Moves[i])) // inherited TMHM moves
-                    res[i] = new CheckMoveResult(MoveSource.TMHM, gen, AllowInheritedSeverity, infoset.AllowInherited ? LMoveEggTMHM : LMoveEggInvalidEventTMHM, CheckIdentifier.Move);
+                    res[i] = new CheckMoveResult(TMHM, gen, AllowInheritedSeverity, infoset.AllowInherited ? LMoveEggTMHM : LMoveEggInvalidEventTMHM, Move);
                 else if (infoset.Tutor.Contains(Moves[i])) // inherited tutor moves
-                    res[i] = new CheckMoveResult(MoveSource.Tutor, gen, AllowInheritedSeverity, infoset.AllowInherited ? LMoveEggInheritedTutor : LMoveEggInvalidEventTutor, CheckIdentifier.Move);
+                    res[i] = new CheckMoveResult(Tutor, gen, AllowInheritedSeverity, infoset.AllowInherited ? LMoveEggInheritedTutor : LMoveEggInvalidEventTutor, Move);
                 else // not inheritable, flag
-                    res[i] = new CheckMoveResult(MoveSource.Unknown, gen, Severity.Invalid, LMoveEggInvalid, CheckIdentifier.Move);
+                    res[i] = new CheckMoveResult(Unknown, gen, Invalid, LMoveEggInvalid, Move);
             }
 
             return res;
@@ -807,9 +824,9 @@ namespace PKHeX.Core
                 if (Moves[i] == 0)
                     emptySlot = true;
                 else if (emptySlot)
-                    res[i] = new CheckMoveResult(res[i], Severity.Invalid, LMoveSourceEmpty, res[i].Identifier);
+                    res[i] = new CheckMoveResult(res[i], Invalid, LMoveSourceEmpty, res[i].Identifier);
                 else if (Moves.Count(m => m == Moves[i]) > 1)
-                    res[i] = new CheckMoveResult(res[i], Severity.Invalid, LMoveSourceDuplicate, res[i].Identifier);
+                    res[i] = new CheckMoveResult(res[i], Invalid, LMoveSourceDuplicate, res[i].Identifier);
             }
         }
 
@@ -817,7 +834,7 @@ namespace PKHeX.Core
         {
             if (generation >= 3)
                 return;
-            var lvlG1 = info.EncounterMatch?.LevelMin + 1 ?? 6;
+            var lvlG1 = info.EncounterMatch.LevelMin + 1;
             if (lvlG1 == defaultLvlG1)
                 return;
             EncounterMoves.LevelUpMoves[1] = Legal.GetValidMoves(pkm, info.EvoChainsAllGens[1], generation: 1, minLvLG1: lvlG1, LVL: true, Tutor: false, Machine: false, MoveReminder: false).ToList();
@@ -827,12 +844,15 @@ namespace PKHeX.Core
         {
             if (generation >= 3)
                 return;
-            var lvlG2 = info.EncounterMatch?.LevelMin + 1 ?? 6;
+            var lvlG2 = info.EncounterMatch.LevelMin + 1;
             if (lvlG2 == defaultLvlG2)
                 return;
             EncounterMoves.LevelUpMoves[2] = Legal.GetValidMoves(pkm, info.EvoChainsAllGens[2], generation: 2, minLvLG2: defaultLvlG2, LVL: true, Tutor: false, Machine: false, MoveReminder: false).ToList();
         }
 
+        /// <summary>
+        /// Gets the generation numbers in descending order for iterating over.
+        /// </summary>
         public static int[] GetGenMovesCheckOrder(PKM pkm)
         {
             if (pkm.Format < 3)
@@ -856,12 +876,13 @@ namespace PKHeX.Core
 
         private static readonly int[] G2 = {2};
         private static readonly int[] G12 = {1, 2};
+        private static readonly int[] G21 = {2, 1};
 
         private static int[] GetGenMovesCheckOrderGB(PKM pkm, int originalGeneration)
         {
             if (originalGeneration == 2)
-                return pkm.Korean ? G2 : G12;
-            return new[] {1, 2}; // RBY
+                return pkm.Korean ? G2 : G21;
+            return G12; // RBY
         }
 
         private static int[] GetGenMovesOrder(int start, int end)

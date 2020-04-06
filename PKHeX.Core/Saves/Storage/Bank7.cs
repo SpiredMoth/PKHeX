@@ -1,16 +1,18 @@
 ﻿using System;
+using System.Collections.Generic;
 
 namespace PKHeX.Core
 {
+    /// <summary>
+    /// Generation 7 <see cref="SaveFile"/> object that reads from Pokémon Bank savedata (stored on AWS).
+    /// </summary>
     public sealed class Bank7 : BulkStorage
     {
-        public Bank7(byte[] data, Type t, int start, int slotsPerBox = 30) : base(data, t, start, slotsPerBox)
-        {
-            Personal = PersonalTable.USUM;
-            Version = GameVersion.USUM;
-            HeldItems = Legal.HeldItems_USUM;
-        }
+        public Bank7(byte[] data, Type t, int start, int slotsPerBox = 30) : base(data, t, start, slotsPerBox) => Version = GameVersion.USUM;
 
+        public override PersonalTable Personal => PersonalTable.USUM;
+        public override IReadOnlyList<ushort> HeldItems => Legal.HeldItems_SM;
+        public override SaveFile Clone() => new Bank7((byte[])Data.Clone(), PKMType, BoxStart, SlotsPerBox);
         public override string PlayTimeString => $"{Year:00}{Month:00}{Day:00}_{Hours:00}ː{Minutes:00}";
         protected override string BAKText => PlayTimeString;
         private const int GroupNameSize = 0x20;
@@ -22,7 +24,7 @@ namespace PKHeX.Core
 
         public string GetGroupName(int group)
         {
-            if (group < 0 || group > 10)
+            if ((uint)group > 10)
                 throw new ArgumentException($"{nameof(group)} must be 1-10.");
             int offset = 0x8 + (GroupNameSpacing * group) + 2; // skip over " "
             return GetString(offset, GroupNameSize / 2);

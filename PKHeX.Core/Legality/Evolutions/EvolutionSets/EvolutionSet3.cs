@@ -1,13 +1,12 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace PKHeX.Core
 {
     /// <summary>
     /// Generation 3 Evolution Branch Entries
     /// </summary>
-    public sealed class EvolutionSet3 : EvolutionSet
+    public static class EvolutionSet3
     {
         private static EvolutionMethod GetMethod(byte[] data, int offset)
         {
@@ -23,12 +22,12 @@ namespace PKHeX.Core
                 case 3: /* Friendship night*/
                 case 5: /* Trade   */
                 case 6: /* Trade while holding */
-                    return new EvolutionMethod { Method = method, Species = species, Argument = arg };
+                    return new EvolutionMethod(method, species, argument: arg);
                 case 4: /* Level Up */
-                    return new EvolutionMethod { Method = 4, Species = species, Level = arg, Argument = arg };
+                    return new EvolutionMethod(4, species, argument: arg, level:arg);
                 case 7: /* Use item */
                 case 15: /* Beauty evolution*/
-                    return new EvolutionMethod { Method = method + 1, Species = species, Argument = arg };
+                    return new EvolutionMethod(method + 1, species, argument: arg);
                 case 8: /* Tyrogue -> Hitmonchan */
                 case 9: /* Tyrogue -> Hitmonlee */
                 case 10: /* Tyrogue -> Hitmontop*/
@@ -36,35 +35,45 @@ namespace PKHeX.Core
                 case 12: /* Wurmple -> Cascoon evolution */
                 case 13: /* Nincada -> Ninjask evolution */
                 case 14: /* Shedinja spawn in Nincada -> Ninjask evolution */
-                    return new EvolutionMethod { Method = method + 1, Species = species, Level = arg, Argument = arg };
+                    return new EvolutionMethod(method + 1, species, argument: arg, level: arg);
+
+                default:
+                    throw new ArgumentException(nameof(method));
             }
-            return null;
         }
 
-        public static List<EvolutionSet> GetArray(byte[] data)
+        public static IReadOnlyList<EvolutionMethod[]> GetArray(byte[] data)
         {
-            EvolutionSet[] evos = new EvolutionSet[Legal.MaxSpeciesID_3 + 1];
-            evos[0] = new EvolutionSet3 { PossibleEvolutions = new EvolutionMethod[0] };
-            for (int i = 0; i <= Legal.MaxSpeciesIndex_3; i++)
+            var evos = new EvolutionMethod[Legal.MaxSpeciesID_3 + 1][];
+            evos[0] = Array.Empty<EvolutionMethod>();
+            for (int i = 1; i <= Legal.MaxSpeciesIndex_3; i++)
             {
                 int g4species = SpeciesConverter.GetG4Species(i);
                 if (g4species == 0)
                     continue;
 
-                int offset = i * 40;
-                var m_list = new List<EvolutionMethod>();
-                for (int j = 0; j < 5; j++)
+                const int maxCount = 5;
+                const int size = 8;
+
+                int offset = i * (maxCount * size);
+                int count = 0;
+                for (; count < maxCount; count++)
                 {
-                    EvolutionMethod m = GetMethod(data,  offset);
-                    if (m != null)
-                        m_list.Add(m);
-                    else
+                    if (data[offset + (count * size)] == 0)
                         break;
-                    offset += 8;
                 }
-                evos[g4species] = new EvolutionSet3 { PossibleEvolutions = m_list.ToArray() };
+                if (count == 0)
+                {
+                    evos[g4species] = Array.Empty<EvolutionMethod>();
+                    continue;
+                }
+
+                var set = new EvolutionMethod[count];
+                for (int j = 0; j < set.Length; j++)
+                    set[j] = GetMethod(data, offset + (j * size));
+                evos[g4species] = set;
             }
-            return evos.ToList();
+            return evos;
         }
     }
 }

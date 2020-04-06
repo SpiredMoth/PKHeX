@@ -1,20 +1,24 @@
 ﻿using System;
+using System.Collections.Generic;
 
 namespace PKHeX.Core
 {
     /// <summary> Generation 4 <see cref="PKM"/> format, exclusively for Pokémon Battle Revolution. </summary>
-    /// <remarks> Values are stored in Big Endian format rather than Little Endian. Beware. </remarks>
-    public sealed class BK4 : _K4
+    /// <remarks>
+    /// When stored in the save file, these are only shuffled; no xor encryption is performed.
+    /// Values are stored in Big Endian format rather than Little Endian. Beware.
+    /// </remarks>
+    public sealed class BK4 : G4PKM
     {
-        private static readonly byte[] Unused =
+        private static readonly ushort[] Unused =
         {
             0x42, 0x43, 0x5E, 0x63, 0x64, 0x65, 0x66, 0x67, 0x87
         };
 
-        public override byte[] ExtraBytes => Unused;
+        public override IReadOnlyList<ushort> ExtraBytes => Unused;
 
-        public override int SIZE_PARTY => PKX.SIZE_4STORED;
-        public override int SIZE_STORED => PKX.SIZE_4STORED;
+        public override int SIZE_PARTY => PokeCrypto.SIZE_4STORED;
+        public override int SIZE_STORED => PokeCrypto.SIZE_4STORED;
         public override int Format => 4;
         public override PersonalInfo PersonalInfo => PersonalTable.HGSS[Species];
 
@@ -22,30 +26,31 @@ namespace PKHeX.Core
 
         public override bool Valid => ChecksumValid || (Sanity == 0 && Species <= MaxSpeciesID);
 
-        public BK4(byte[] decryptedData = null, string ident = null)
+        public override byte[] Data { get; }
+
+        public static BK4 ReadUnshuffle(byte[] data)
         {
-            Data = decryptedData ?? new byte[SIZE_PARTY];
+            var PID = BigEndian.ToUInt32(data, 0);
             uint sv = ((PID & 0x3E000) >> 0xD) % 24;
-            Data = PKX.ShuffleArray(Data, sv, PKX.SIZE_4BLOCK);
-            Identifier = ident;
-            if (Sanity != 0 && Species <= MaxSpeciesID && !ChecksumValid) // We can only hope
-                RefreshChecksum();
-            if (Valid && Sanity == 0)
-                Sanity = 0x4000;
-            SetStats(GetStats(PersonalInfo));
+            var Data = PokeCrypto.ShuffleArray(data, sv, PokeCrypto.SIZE_4BLOCK);
+            var result = new BK4(Data);
+            result.RefreshChecksum();
+            return result;
         }
 
-        public BK4()
+        public BK4(byte[] data)
         {
-            Data = new byte[SIZE_PARTY];
+            Data = data;
             Sanity = 0x4000;
-            SetStats(GetStats(PersonalInfo));
+            ResetPartyStats();
         }
 
-        public override PKM Clone() => new BK4((byte[])Encrypt().Clone(), Identifier);
+        public BK4() : this(new byte[PokeCrypto.SIZE_4STORED]) { }
 
-        public string GetString(int Offset, int Count) => StringConverter.GetBEString4(Data, Offset, Count);
-        public byte[] SetString(string value, int maxLength) => StringConverter.SetBEString4(value, maxLength);
+        public override PKM Clone() => new BK4((byte[])Data.Clone()){Identifier = Identifier};
+
+        public string GetString(int Offset, int Count) => StringConverter4.GetBEString4(Data, Offset, Count);
+        public byte[] SetString(string value, int maxLength) => StringConverter4.SetBEString4(value, maxLength);
 
         // Structure
         public override uint PID { get => BigEndian.ToUInt32(Data, 0x00); set => BigEndian.GetBytes(value).CopyTo(Data, 0x00); }
@@ -133,14 +138,14 @@ namespace PKHeX.Core
         public override int Move3_PPUps { get => Data[0x36]; set => Data[0x36] = (byte)value; }
         public override int Move4_PPUps { get => Data[0x37]; set => Data[0x37] = (byte)value; }
         public uint IV32 { get => BigEndian.ToUInt32(Data, 0x38); set => BigEndian.GetBytes(value).CopyTo(Data, 0x38); }
-        public override int IV_SPD { get => (int)(IV32 >> 02) & 0x1F; set => IV32 = (uint)((IV32 & ~(0x1F << 02)) | (uint)((value > 31 ? 31 : value) << 02)); }
-        public override int IV_SPA { get => (int)(IV32 >> 07) & 0x1F; set => IV32 = (uint)((IV32 & ~(0x1F << 07)) | (uint)((value > 31 ? 31 : value) << 07)); }
-        public override int IV_SPE { get => (int)(IV32 >> 12) & 0x1F; set => IV32 = (uint)((IV32 & ~(0x1F << 12)) | (uint)((value > 31 ? 31 : value) << 12)); }
-        public override int IV_DEF { get => (int)(IV32 >> 17) & 0x1F; set => IV32 = (uint)((IV32 & ~(0x1F << 17)) | (uint)((value > 31 ? 31 : value) << 17)); }
-        public override int IV_ATK { get => (int)(IV32 >> 22) & 0x1F; set => IV32 = (uint)((IV32 & ~(0x1F << 22)) | (uint)((value > 31 ? 31 : value) << 22)); }
-        public override int IV_HP { get => (int)(IV32 >> 27) & 0x1F; set => IV32 = (uint)((IV32 & ~(0x1F << 27)) | (uint)((value > 31 ? 31 : value) << 27)); }
-        public override bool IsNicknamed { get => ((IV32 >> 0) & 1) == 1; set => IV32 = (uint)((IV32 & ~0x00000001) | (uint)(value ? 0x00000001 : 0)); }
-        public override bool IsEgg { get => ((IV32 >> 1) & 1) == 1; set => IV32 = (uint)((IV32 & ~0x00000002) | (uint)(value ? 0x00000002 : 0)); }
+        public override int IV_SPD { get => (int)(IV32 >> 02) & 0x1F; set => IV32 = ((IV32 & ~(0x1Fu << 02)) | ((value > 31 ? 31u : (uint)value) << 02)); }
+        public override int IV_SPA { get => (int)(IV32 >> 07) & 0x1F; set => IV32 = ((IV32 & ~(0x1Fu << 07)) | ((value > 31 ? 31u : (uint)value) << 07)); }
+        public override int IV_SPE { get => (int)(IV32 >> 12) & 0x1F; set => IV32 = ((IV32 & ~(0x1Fu << 12)) | ((value > 31 ? 31u : (uint)value) << 12)); }
+        public override int IV_DEF { get => (int)(IV32 >> 17) & 0x1F; set => IV32 = ((IV32 & ~(0x1Fu << 17)) | ((value > 31 ? 31u : (uint)value) << 17)); }
+        public override int IV_ATK { get => (int)(IV32 >> 22) & 0x1F; set => IV32 = ((IV32 & ~(0x1Fu << 22)) | ((value > 31 ? 31u : (uint)value) << 22)); }
+        public override int IV_HP { get => (int)(IV32 >> 27) & 0x1F;  set => IV32 = ((IV32 & ~(0x1Fu << 27)) | ((value > 31 ? 31u : (uint)value) << 27)); }
+        public override bool IsNicknamed { get => ((IV32 >> 0) & 1) == 1; set => IV32 = ((IV32 & ~0x00000001u) | (value ? 0x00000001u : 0u)); }
+        public override bool IsEgg { get => ((IV32 >> 1) & 1) == 1; set => IV32 = ((IV32 & ~0x00000002u) | (value ? 0x00000002u : 0u)); }
 
         private byte RIB7 { get => Data[0x3C]; set => Data[0x3C] = value; } // Hoenn 2b
         private byte RIB6 { get => Data[0x3D]; set => Data[0x3D] = value; } // Hoenn 2a
@@ -254,7 +259,7 @@ namespace PKHeX.Core
                     BigEndian.GetBytes((ushort)0).CopyTo(Data, 0x44);
                     BigEndian.GetBytes((ushort)0).CopyTo(Data, 0x7E);
                 }
-                else if ((value < 2000 && value > 111) || (value < 3000 && value > 2010))
+                else if ((value < 2000 && value > 111) || Locations.IsPtHGSSLocationEgg(value))
                 {
                     // Met location not in DP, set to Faraway Place
                     BigEndian.GetBytes((ushort)value).CopyTo(Data, 0x44);
@@ -285,7 +290,7 @@ namespace PKHeX.Core
                     BigEndian.GetBytes((ushort)0).CopyTo(Data, 0x46);
                     BigEndian.GetBytes((ushort)0).CopyTo(Data, 0x80);
                 }
-                else if ((value < 2000 && value > 111) || (value < 3000 && value > 2010))
+                else if ((value < 2000 && value > 111) || Locations.IsPtHGSSLocationEgg(value))
                 {
                     // Met location not in DP, set to Faraway Place
                     BigEndian.GetBytes((ushort)value).CopyTo(Data, 0x46);
@@ -334,6 +339,7 @@ namespace PKHeX.Core
         #endregion
 
         // Not stored
+        public override int Status_Condition { get; set; }
         public override int Stat_Level { get => CurrentLevel; set {} }
         public override int Stat_HPCurrent { get; set; }
         public override int Stat_HPMax { get; set; }
@@ -358,7 +364,7 @@ namespace PKHeX.Core
             // Eggs do not have any modifications done if they are traded
             if (IsEgg && !(SAV_Trainer == OT_Name && SAV_TID == TID && SAV_SID == SID && SAV_GENDER == OT_Gender))
             {
-                SetLinkTradeEgg(Day, Month, Year);
+                SetLinkTradeEgg(Day, Month, Year, Locations.LinkTrade4);
                 return true;
             }
             return false;
@@ -367,7 +373,7 @@ namespace PKHeX.Core
         protected override byte[] Encrypt()
         {
             RefreshChecksum();
-            return PKX.ShuffleArray(Data, PKX.blockPositionInvert[((PID & 0x3E000) >> 0xD)%24], PKX.SIZE_4BLOCK);
+            return PokeCrypto.ShuffleArray(Data, PokeCrypto.blockPositionInvert[((PID & 0x3E000) >> 0xD)%24], PokeCrypto.SIZE_4BLOCK);
         }
 
         public PK4 ConvertToPK4()

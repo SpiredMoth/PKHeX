@@ -45,10 +45,11 @@ namespace PKHeX.WinForms.Controls
             [BoxManipType.DeleteAll] = Resources.nocheck,
             [BoxManipType.DeleteEggs] = Resources.about,
             [BoxManipType.DeletePastGen] = Resources.bak,
-            [BoxManipType.DeleteForeign] = Resources.users,
+            [BoxManipType.DeleteForeign] = Resources.language,
             [BoxManipType.DeleteUntrained] = Resources.gift,
             [BoxManipType.DeleteItemless] = Resources.main,
             [BoxManipType.DeleteIllegal] = Resources.export,
+            [BoxManipType.DeleteClones] = Resources.users,
 
             [BoxManipType.SortSpecies] = Resources.numlohi,
             [BoxManipType.SortSpeciesReverse] = Resources.numhilo,
@@ -70,15 +71,17 @@ namespace PKHeX.WinForms.Controls
             [BoxManipType.SortBST] = Resources.vallohi,
             [BoxManipType.SortCP] = Resources.vallohi,
             [BoxManipType.SortLegal] = Resources.export,
+            [BoxManipType.SortEncounterType] = Resources.about,
 
             [BoxManipType.ModifyHatchEggs] = Resources.about,
-            [BoxManipType.ModifyMaxFriendship] = Resources.heart,
+            [BoxManipType.ModifyMaxFriendship] = Resources.users,
             [BoxManipType.ModifyMaxLevel] = Resources.showdown,
             [BoxManipType.ModifyResetMoves] = Resources.date,
             [BoxManipType.ModifyRandomMoves] = Resources.wand,
             [BoxManipType.ModifyHyperTrain] = Resources.vallohi,
             [BoxManipType.ModifyRemoveNicknames] = Resources.alphaAZ,
             [BoxManipType.ModifyRemoveItem] = Resources.gift,
+            [BoxManipType.ModifyHeal] = Resources.heart,
         };
 
         private sealed class ItemVisibility
@@ -92,7 +95,7 @@ namespace PKHeX.WinForms.Controls
                 Manip = visible;
             }
 
-            public void SetVisibility(SaveFile s) => Item.Visible = Manip.Usable?.Invoke(s) ?? true;
+            public void SetVisibility(SaveFile s) => Item.Visible = Manip.Usable(s);
         }
 
         public void ToggleVisibility()
@@ -129,14 +132,14 @@ namespace PKHeX.WinForms.Controls
             Editor = editor;
         }
 
-        protected override void FinishBoxManipulation(string message, bool all) => Editor.FinishBoxManipulation(message, all);
+        protected override void FinishBoxManipulation(string message, bool all, int count) => Editor.FinishBoxManipulation(message, all, count);
 
         protected override bool CanManipulateRegion(int start, int end, string prompt, string fail)
         {
-            if (prompt != null && WinFormsUtil.Prompt(MessageBoxButtons.YesNo, prompt) != DialogResult.Yes)
+            if (!string.IsNullOrEmpty(prompt) && WinFormsUtil.Prompt(MessageBoxButtons.YesNo, prompt) != DialogResult.Yes)
                 return false;
             bool canModify = base.CanManipulateRegion(start, end, prompt, fail);
-            if (!canModify && fail != null)
+            if (!canModify && !string.IsNullOrEmpty(fail))
                 WinFormsUtil.Alert(fail);
             return canModify;
         }

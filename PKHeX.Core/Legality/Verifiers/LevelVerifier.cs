@@ -46,7 +46,7 @@ namespace PKHeX.Core
 
                 var reqEXP = EncounterMatch is EncounterStatic s && s.Version == GameVersion.C
                     ? 125 // Gen2 Dizzy Punch gifts always have 125 EXP, even if it's more than the Lv5 exp required.
-                    : Experience.GetEXP(elvl, pkm.Species, pkm.AltForm);
+                    : Experience.GetEXP(elvl, pkm.PersonalInfo.EXPGrowth);
                 if (reqEXP != pkm.EXP)
                     data.AddLine(GetInvalid(LEggEXP));
                 return;
@@ -55,7 +55,7 @@ namespace PKHeX.Core
             int lvl = pkm.CurrentLevel;
             if (lvl < pkm.Met_Level)
                 data.AddLine(GetInvalid(LLevelMetBelow));
-            else if (!EncounterMatch.IsWithinRange(pkm) && lvl != 100 && pkm.EXP == Experience.GetEXP(lvl, pkm.Species, pkm.AltForm))
+            else if (!EncounterMatch.IsWithinRange(pkm) && lvl != 100 && pkm.EXP == Experience.GetEXP(lvl, pkm.PersonalInfo.EXPGrowth))
                 data.AddLine(Get(LLevelEXPThreshold, Severity.Fishy));
             else
                 data.AddLine(GetValid(LLevelMetSane));
@@ -87,13 +87,15 @@ namespace PKHeX.Core
 
         private void VerifyG1TradeEvo(LegalityAnalysis data)
         {
+            if (ParseSettings.ActiveTrainer.Generation >= 3)
+                return; // context check is only applicable to gen1/2; transferring to gen2 is a trade.
             var pkm = data.pkm;
             var mustevolve = pkm.TradebackStatus == TradebackType.WasTradeback || (pkm.Format == 1 && !ParseSettings.IsFromActiveTrainer(pkm)) || GBRestrictions.IsTradedKadabraG1(pkm);
             if (!mustevolve)
                 return;
             // Pokemon have been traded but it is not evolved, trade evos are sequential dex numbers
-            var unevolved = LegalityAnalysis.SpeciesStrings[pkm.Species];
             var evolved = LegalityAnalysis.SpeciesStrings[pkm.Species + 1];
+            var unevolved = LegalityAnalysis.SpeciesStrings[pkm.Species];
             data.AddLine(GetInvalid(string.Format(LEvoTradeReqOutsider, unevolved, evolved)));
         }
     }

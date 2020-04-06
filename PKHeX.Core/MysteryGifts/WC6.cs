@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 
@@ -7,36 +8,17 @@ namespace PKHeX.Core
     /// <summary>
     /// Generation 6 Mystery Gift Template File
     /// </summary>
-    public sealed class WC6 : MysteryGift, IRibbonSetEvent3, IRibbonSetEvent4, ILangNick, IContestStats
+    public sealed class WC6 : DataMysteryGift, IRibbonSetEvent3, IRibbonSetEvent4, ILangNick, IContestStats, INature, IMemoryOT
     {
         public const int Size = 0x108;
-        public const int SizeFull = 0x310;
         public const uint EonTicketConst = 0x225D73C2;
         public override int Format => 6;
 
-        public WC6() => Data = new byte[Size];
+        public WC6() : this(new byte[Size]) { }
+        public WC6(byte[] data) : base(data) { }
 
-        public WC6(byte[] data)
-        {
-            Data = data; if (Data.Length == SizeFull)
-            {
-                // Load Restrictions
-                RestrictVersion = Data[0x000];
-                RestrictLanguage = Data[0x1FF];
-                byte[] wc6 = new byte[Size];
-                if (Data[0x205] != 0) // Valid data
-                    Array.Copy(Data, SizeFull - Size, wc6, 0, wc6.Length);
-                Data = wc6;
-
-                DateTime now = DateTime.Now;
-                RawDate = SetDate((uint) now.Year, (uint) now.Month, (uint) now.Day);
-            }
-            if (Year < 2000)
-                Data = new byte[Data.Length]; // Invalidate
-        }
-
-        public int RestrictLanguage { get; set; } = 0; // None
-        public byte RestrictVersion { get; set; } = 0; // Permit All
+        public int RestrictLanguage { get; set; } // None
+        public byte RestrictVersion { get; set; } // Permit All
 
         public bool CanBeReceivedByVersion(int v)
         {
@@ -63,7 +45,7 @@ namespace PKHeX.Core
             set => Encoding.Unicode.GetBytes(value.PadRight(36, '\0')).CopyTo(Data, 2);
         }
 
-        private uint RawDate
+        internal uint RawDate
         {
             get => BitConverter.ToUInt32(Data, 0x4C);
             set => BitConverter.GetBytes(value).CopyTo(Data, 0x4C);
@@ -87,7 +69,7 @@ namespace PKHeX.Core
             set => RawDate = SetDate(Year, Month, value);
         }
 
-        private static uint SetDate(uint year, uint month, uint day) => (year * 10000) + (month * 100) + day;
+        public static uint SetDate(uint year, uint month, uint day) => (year * 10000) + (month * 100) + day;
 
         /// <summary>
         /// Gets or sets the date of the card.
@@ -239,7 +221,7 @@ namespace PKHeX.Core
             get => new[] { IV_HP, IV_ATK, IV_DEF, IV_SPE, IV_SPA, IV_SPD };
             set
             {
-                if (value?.Length != 6) return;
+                if (value.Length != 6) return;
                 IV_HP = value[0]; IV_ATK = value[1]; IV_DEF = value[2];
                 IV_SPE = value[3]; IV_SPA = value[4]; IV_SPD = value[5];
             }
@@ -250,7 +232,7 @@ namespace PKHeX.Core
             get => new[] { EV_HP, EV_ATK, EV_DEF, EV_SPE, EV_SPA, EV_SPD };
             set
             {
-                if (value?.Length != 6) return;
+                if (value.Length != 6) return;
                 EV_HP = value[0]; EV_ATK = value[1]; EV_DEF = value[2];
                 EV_SPE = value[3]; EV_SPA = value[4]; EV_SPD = value[5];
             }
@@ -259,36 +241,38 @@ namespace PKHeX.Core
         public bool IsNicknamed => Nickname.Length > 0;
         public override int Location { get => MetLocation; set => MetLocation = (ushort)value; }
 
-        public override int[] Moves
+        public override IReadOnlyList<int> Moves
         {
             get => new[] { Move1, Move2, Move3, Move4 };
             set
             {
-                if (value.Length > 0) Move1 = value[0];
-                if (value.Length > 1) Move2 = value[1];
-                if (value.Length > 2) Move3 = value[2];
-                if (value.Length > 3) Move4 = value[3];
+                if (value.Count > 0) Move1 = value[0];
+                if (value.Count > 1) Move2 = value[1];
+                if (value.Count > 2) Move3 = value[2];
+                if (value.Count > 3) Move4 = value[3];
             }
         }
 
-        public override int[] RelearnMoves
+        public override IReadOnlyList<int> Relearn
         {
             get => new[] { RelearnMove1, RelearnMove2, RelearnMove3, RelearnMove4 };
             set
             {
-                if (value.Length > 0) RelearnMove1 = value[0];
-                if (value.Length > 1) RelearnMove2 = value[1];
-                if (value.Length > 2) RelearnMove3 = value[2];
-                if (value.Length > 3) RelearnMove4 = value[3];
+                if (value.Count > 0) RelearnMove1 = value[0];
+                if (value.Count > 1) RelearnMove2 = value[1];
+                if (value.Count > 2) RelearnMove3 = value[2];
+                if (value.Count > 3) RelearnMove4 = value[3];
             }
         }
 
-        public override PKM ConvertToPKM(ITrainerInfo SAV)
+        public override PKM ConvertToPKM(ITrainerInfo SAV, EncounterCriteria criteria)
         {
             if (!IsPokémon)
-                return null;
+                throw new ArgumentException(nameof(IsPokémon));
 
-            int currentLevel = Level > 0 ? Level : Util.Rand.Next(100) + 1;
+            var rnd = Util.Rand;
+
+            int currentLevel = Level > 0 ? Level : rnd.Next(1, 101);
             var pi = PersonalTable.AO.GetFormeEntry(Species, Form);
             PK6 pk = new PK6
             {
@@ -297,8 +281,6 @@ namespace PKHeX.Core
                 TID = TID,
                 SID = SID,
                 Met_Level = currentLevel,
-                Nature = Nature != -1 ? Nature : Util.Rand.Next(25),
-                Gender = Gender != 3 ? Gender : pi.RandomGender,
                 AltForm = Form,
                 EncryptionConstant = EncryptionConstant != 0 ? EncryptionConstant : Util.Rand32(),
                 Version = OriginGame != 0 ? OriginGame : SAV.Game,
@@ -325,7 +307,7 @@ namespace PKHeX.Core
                 HT_Gender = OT_Name.Length > 0 ? SAV.Gender : 0,
                 CurrentHandler = OT_Name.Length > 0 ? 1 : 0,
 
-                EXP = Experience.GetEXP(Level, Species, 0),
+                EXP = Experience.GetEXP(Level, pi.EXPGrowth),
 
                 // Ribbons
                 RibbonCountry = RibbonCountry,
@@ -351,7 +333,7 @@ namespace PKHeX.Core
                 OT_Memory = OT_Memory,
                 OT_TextVar = OT_TextVar,
                 OT_Feeling = OT_Feeling,
-                FatefulEncounter = true,
+                FatefulEncounter = MetLocation != 30011, // Link gifts do not set fateful encounter
 
                 EVs = EVs,
             };
@@ -362,7 +344,7 @@ namespace PKHeX.Core
             if ((SAV.Generation > Format && OriginGame == 0) || !CanBeReceivedByVersion(pk.Version))
             {
                 // give random valid game
-                do { pk.Version = (int)GameVersion.X + Util.Rand.Next(4); }
+                do { pk.Version = (int)GameVersion.X + rnd.Next(4); }
                 while (!CanBeReceivedByVersion(pk.Version));
             }
 
@@ -386,41 +368,55 @@ namespace PKHeX.Core
             }
 
             pk.IsNicknamed = IsNicknamed;
-            pk.Nickname = IsNicknamed ? Nickname : PKX.GetSpeciesNameGeneration(Species, pk.Language, Format);
+            pk.Nickname = IsNicknamed ? Nickname : SpeciesName.GetSpeciesNameGeneration(Species, pk.Language, Format);
 
-            int[] finalIVs = new int[6];
-            var ivflag = Array.Find(IVs, iv => (byte)(iv - 0xFC) < 3);
-            if (ivflag == 0) // Random IVs
-            {
-                for (int i = 0; i < 6; i++)
-                    finalIVs[i] = IVs[i] > pk.MaxIV ? Util.Rand.Next(pk.MaxIV + 1) : IVs[i];
-            }
-            else // 1/2/3 perfect IVs
-            {
-                int IVCount = ivflag - 0xFB;
-                do { finalIVs[Util.Rand.Next(6)] = 31; }
-                while (finalIVs.Count(r => r == 31) < IVCount);
-                for (int i = 0; i < 6; i++)
-                    finalIVs[i] = finalIVs[i] == 31 ? pk.MaxIV : Util.Rand.Next(pk.MaxIV + 1);
-            }
-            pk.IVs = finalIVs;
+            SetPINGA(pk, criteria);
 
-            int av = 0;
+            if (IsEgg)
+                SetEggMetData(pk);
+            pk.CurrentFriendship = pk.IsEgg ? pi.HatchCycles : pi.BaseFriendship;
+
+            pk.RefreshChecksum();
+            return pk;
+        }
+
+        private void SetEggMetData(PKM pk)
+        {
+            pk.IsEgg = true;
+            pk.EggMetDate = Date;
+            pk.Nickname = SpeciesName.GetSpeciesNameGeneration(0, pk.Language, Format);
+            pk.IsNicknamed = true;
+        }
+
+        private void SetPINGA(PKM pk, EncounterCriteria criteria)
+        {
+            var pi = PersonalTable.AO.GetFormeEntry(Species, Form);
+            pk.Nature = (int)criteria.GetNature((Nature)Nature);
+            pk.Gender = criteria.GetGender(Gender, pi);
+            var av = GetAbilityIndex(criteria, pi);
+            pk.RefreshAbility(av);
+            SetPID(pk);
+            SetIVs(pk);
+        }
+
+        private int GetAbilityIndex(EncounterCriteria criteria, PersonalInfo pi)
+        {
             switch (AbilityType)
             {
                 case 00: // 0 - 0
                 case 01: // 1 - 1
                 case 02: // 2 - H
-                    av = AbilityType;
-                    break;
+                    return AbilityType;
                 case 03: // 0/1
                 case 04: // 0/1/H
-                    av = Util.Rand.Next(AbilityType - 1);
-                    break;
+                    return criteria.GetAbility(AbilityType, pi); // 3 or 2
+                default:
+                    throw new ArgumentException(nameof(AbilityType));
             }
-            pk.Ability = pi.Abilities[av];
-            pk.AbilityNumber = 1 << av;
+        }
 
+        private void SetPID(PKM pk)
+        {
             switch (PIDType)
             {
                 case Shiny.FixedValue: // Specified
@@ -438,18 +434,99 @@ namespace PKHeX.Core
                     if (pk.IsShiny) pk.PID ^= 0x10000000;
                     break;
             }
+        }
+
+        private void SetIVs(PKM pk)
+        {
+            int[] finalIVs = new int[6];
+            var ivflag = Array.Find(IVs, iv => (byte)(iv - 0xFC) < 3);
+            var rnd = Util.Rand;
+            if (ivflag == 0) // Random IVs
+            {
+                for (int i = 0; i < 6; i++)
+                    finalIVs[i] = IVs[i] > 31 ? rnd.Next(32) : IVs[i];
+            }
+            else // 1/2/3 perfect IVs
+            {
+                int IVCount = ivflag - 0xFB;
+                do { finalIVs[rnd.Next(6)] = 31; }
+                while (finalIVs.Count(iv => iv == 31) < IVCount);
+                for (int i = 0; i < 6; i++)
+                    finalIVs[i] = finalIVs[i] == 31 ? 31 : rnd.Next(32);
+            }
+            pk.IVs = finalIVs;
+        }
+
+        protected override bool IsMatchExact(PKM pkm)
+        {
+            if (pkm.Egg_Location == 0) // Not Egg
+            {
+                if (OTGender != 3)
+                {
+                    // Skip ID check if ORASDEMO Simulated wc6
+                    if (CardID != 0)
+                    {
+                        if (SID != pkm.SID) return false;
+                        if (TID != pkm.TID) return false;
+                    }
+                    if (OTGender != pkm.OT_Gender) return false;
+                }
+                if (!string.IsNullOrEmpty(OT_Name) && OT_Name != pkm.OT_Name) return false;
+                if (PIDType == Shiny.FixedValue && pkm.PID != PID) return false;
+                if (!PIDType.IsValid(pkm)) return false;
+                if (OriginGame != 0 && OriginGame != pkm.Version) return false;
+                if (EncryptionConstant != 0 && EncryptionConstant != pkm.EncryptionConstant) return false;
+                if (Language != 0 && Language != pkm.Language) return false;
+            }
+            if (Form != pkm.AltForm && !Legal.IsFormChangeable(pkm, Species))
+                return false;
 
             if (IsEgg)
             {
-                pk.IsEgg = true;
-                pk.EggMetDate = Date;
-                pk.Nickname = PKX.GetSpeciesNameGeneration(0, pk.Language, Format);
-                pk.IsNicknamed = true;
-            }
-            pk.CurrentFriendship = pk.IsEgg ? pi.HatchCycles : pi.BaseFriendship;
+                if (EggLocation != pkm.Egg_Location) // traded
+                {
+                    if (pkm.Egg_Location != Locations.LinkTrade6)
+                        return false;
+                }
+                else if (PIDType == 0 && pkm.IsShiny)
+                {
+                    return false; // can't be traded away for unshiny
+                }
 
-            pk.RefreshChecksum();
-            return pk;
+                if (pkm.IsEgg && !pkm.IsNative)
+                    return false;
+            }
+            else
+            {
+                if (EggLocation != pkm.Egg_Location) return false;
+                if (MetLocation != pkm.Met_Location) return false;
+            }
+
+            if (Level != pkm.Met_Level) return false;
+            if (Ball != pkm.Ball) return false;
+            if (OTGender < 3 && OTGender != pkm.OT_Gender) return false;
+            if (Nature != -1 && pkm.Nature != Nature) return false;
+            if (Gender != 3 && Gender != pkm.Gender) return false;
+
+            if (pkm is IContestStats s && s.IsContestBelow(this))
+                return false;
+
+            return true;
+        }
+
+        protected override bool IsMatchDeferred(PKM pkm)
+        {
+            switch (CardID)
+            {
+                case 0525 when IV_HP == 0xFE: // Diancie was distributed with no IV enforcement & 3IVs
+                case 0504 when RibbonClassic != ((IRibbonSetEvent4)pkm).RibbonClassic: // magmar with/without classic
+                    return true;
+            }
+            if (RestrictLanguage != 0 && RestrictLanguage != pkm.Language)
+                return true;
+            if (!CanBeReceivedByVersion(pkm.Version))
+                return true;
+            return Species != pkm.Species;
         }
     }
 }

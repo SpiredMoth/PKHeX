@@ -22,7 +22,7 @@ namespace PKHeX.Core
             {
                 case EncounterTrade _:
                 case MysteryGift g when !g.IsEgg:
-                case EncounterStaticPID s when s.NSparkle:
+                case EncounterStatic5N _:
                     return; // already verified
             }
 
@@ -104,7 +104,7 @@ namespace PKHeX.Core
             if (data.EncounterOriginal is EncounterStatic s && (s.Version == GameVersion.Stadium || s.Version == GameVersion.Stadium2))
                 data.AddLine(VerifyG1OTStadium(pkm, tr, s));
 
-            if (pkm.Species == 151)
+            if (pkm.Species == (int)Species.Mew)
             {
                 var OTMatch = (tr == Legal.GetG1OT_GFMew((int)LanguageID.Japanese))
                               || (tr == Legal.GetG1OT_GFMew((int)LanguageID.English));
@@ -118,17 +118,17 @@ namespace PKHeX.Core
 
         private void VerifyG1OTWithinBounds(LegalityAnalysis data, string str)
         {
-            if (StringConverter.GetIsG1English(str))
+            if (StringConverter12.GetIsG1English(str))
             {
                 if (str.Length > 7 && !(data.EncounterOriginal is EncounterTrade)) // OT already verified; GER shuckle has 8 chars
                     data.AddLine(GetInvalid(LOTLong));
             }
-            else if (StringConverter.GetIsG1Japanese(str))
+            else if (StringConverter12.GetIsG1Japanese(str))
             {
                 if (str.Length > 5)
                     data.AddLine(GetInvalid(LOTLong));
             }
-            else if (data.pkm.Korean && StringConverter.GetIsG2Korean(str))
+            else if (data.pkm.Korean && StringConverter2KOR.GetIsG2Korean(str))
             {
                 if (str.Length > 5)
                     data.AddLine(GetInvalid(LOTLong));
@@ -141,11 +141,32 @@ namespace PKHeX.Core
 
         private CheckResult VerifyG1OTStadium(PKM pkm, string tr, IVersion s)
         {
-            bool jp = pkm.Japanese;
-            var ot = Legal.GetGBStadiumOTName(jp, s.Version);
-            var id = Legal.GetGBStadiumOTID(jp, s.Version);
-            bool valid = ot == tr && id == pkm.TID;
-            return valid ? GetValid(jp ? LG1StadiumJapanese : LG1StadiumInternational) : GetInvalid(LG1Stadium);
+            if (pkm.OT_Gender != 0)
+                return GetInvalid(LG1OTGender);
+
+            int tid = pkm.TID;
+            if (pkm.Japanese)
+            {
+                if (tid == Legal.GetGBStadiumOTID_JPN(s.Version) && Legal.Stadium1JP == tr)
+                    return GetValid(LG1StadiumJapanese);
+            }
+            else
+            {
+                if (s.Version == GameVersion.Stadium && tid == 2000)
+                {
+                    if (tr == "STADIUM" || tr == "STADE" || tr == "STADIO" || tr == "ESTADIO")
+                        return GetValid(LG1StadiumInternational);
+                }
+                else // Stadium2
+                {
+                    if (tid == 2000 && tr == "Stadium")
+                        return GetValid(LG1StadiumInternational);
+
+                    if (tid == 2001 && (tr == "Stade" || tr == "Stadion" || tr == "Stadio" || tr == "Estadio"))
+                        return GetValid(LG1StadiumInternational);
+                }
+            }
+            return GetInvalid(LG1Stadium);
         }
 
         private bool IsOTNameSuspicious(string name)
@@ -166,7 +187,7 @@ namespace PKHeX.Core
 
         private static int GetNumberCount(string str)
         {
-            bool IsNumber(char c)
+            static bool IsNumber(char c)
             {
                 if ('０' <= c)
                     return c <= '９';

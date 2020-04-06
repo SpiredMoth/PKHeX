@@ -5,9 +5,11 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 using static PKHeX.Core.MessageStrings;
+using Exception = System.Exception;
 
 namespace PKHeX.WinForms
 {
@@ -15,6 +17,11 @@ namespace PKHeX.WinForms
     {
         internal static void TranslateInterface(Control form, string lang) => form.TranslateInterface(lang);
 
+        /// <summary>
+        /// Centers the <see cref="child"/> horizontally and vertically so that its center is the same as the <see cref="parent"/>'s center.
+        /// </summary>
+        /// <param name="child"></param>
+        /// <param name="parent"></param>
         internal static void CenterToForm(this Control child, Control parent)
         {
             int x = parent.Location.X + ((parent.Width - child.Width) / 2);
@@ -22,14 +29,22 @@ namespace PKHeX.WinForms
             child.Location = new Point(Math.Max(x, 0), Math.Max(y, 0));
         }
 
-        public static Form FirstFormOfType<T>(this Form f) => Array.Find(f.OwnedForms, form => form is T);
+        /// <summary>
+        /// Horizontally centers the <see cref="child"/> to the <see cref="parent"/>'s horizontal center.
+        /// </summary>
+        internal static void HorizontallyCenter(this Control child, Control parent)
+        {
+            int x = ((parent.Width - child.Width) / 2);
+            child.Location = new Point(x, child.Location.Y);
+        }
+
+        public static T FirstFormOfType<T>() where T : Form => (T)Application.OpenForms.Cast<Form>().FirstOrDefault(form => form is T);
 
         public static T FindFirstControlOfType<T>(Control aParent) where T : class
         {
             while (true)
             {
-                var t = aParent as T;
-                if (t != null)
+                if (aParent is T t)
                     return t;
 
                 if (aParent.Parent != null)
@@ -39,7 +54,36 @@ namespace PKHeX.WinForms
             }
         }
 
-        public static Control GetUnderlyingControl(object sender) => ((sender as ToolStripItem)?.Owner as ContextMenuStrip)?.SourceControl ?? sender as PictureBox;
+        public static T GetUnderlyingControl<T>(object sender)
+        {
+            while (true)
+            {
+                switch (sender)
+                {
+                    case ToolStripItem t:
+                        sender = t.Owner;
+                        continue;
+                    case ContextMenuStrip c:
+                        sender = c.SourceControl;
+                        continue;
+                    case T p:
+                        return p;
+                    default:
+                        return default;
+                }
+            }
+        }
+
+        public static bool OpenWindowExists<T>(this Form parent) where T : Form
+        {
+            var form = FirstFormOfType<T>();
+            if (form == null)
+                return false;
+
+            form.CenterToForm(parent);
+            form.BringToFront();
+            return true;
+        }
 
         #region Message Displays
         /// <summary>
@@ -61,38 +105,60 @@ namespace PKHeX.WinForms
         /// <returns>The <see cref="DialogResult"/> associated with the dialog.</returns>
         internal static DialogResult Error(params string[] lines)
         {
-            System.Media.SystemSounds.Exclamation.Play();
+            System.Media.SystemSounds.Hand.Play();
             string msg = string.Join(Environment.NewLine + Environment.NewLine, lines);
             return MessageBox.Show(msg, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
 
-        internal static DialogResult Alert(params string[] lines)
+        internal static DialogResult Alert(params string[] lines) => Alert(true, lines);
+
+        internal static DialogResult Alert(bool sound, params string[] lines)
         {
-            System.Media.SystemSounds.Asterisk.Play();
+            if (sound)
+                System.Media.SystemSounds.Asterisk.Play();
             string msg = string.Join(Environment.NewLine + Environment.NewLine, lines);
-            return MessageBox.Show(msg, "Alert", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return MessageBox.Show(msg, "Alert", MessageBoxButtons.OK, sound ? MessageBoxIcon.Information : MessageBoxIcon.None);
         }
 
         internal static DialogResult Prompt(MessageBoxButtons btn, params string[] lines)
         {
-            System.Media.SystemSounds.Question.Play();
+            System.Media.SystemSounds.Asterisk.Play();
             string msg = string.Join(Environment.NewLine + Environment.NewLine, lines);
-            return MessageBox.Show(msg, "Prompt", btn, MessageBoxIcon.Asterisk);
+            return MessageBox.Show(msg, "Prompt", btn, MessageBoxIcon.Question);
         }
         #endregion
+
+        internal static bool SetClipboardText(string text)
+        {
+            try
+            {
+                Clipboard.SetText(text);
+                return true;
+            }
+            catch (ExternalException x)
+            {
+                Error(MsgClipboardFailWrite, x);
+            }
+            catch
+            {
+                Error(MsgClipboardFailWrite);
+            }
+
+            return false;
+        }
 
         /// <summary>
         /// Gets the selected value of the input <see cref="cb"/>. If no value is selected, will return 0.
         /// </summary>
         /// <param name="cb">ComboBox to retrieve value for.</param>
-        internal static int GetIndex(ComboBox cb)
+        internal static int GetIndex(ListControl cb)
         {
             return (int)(cb?.SelectedValue ?? 0);
         }
 
         public static void PanelScroll(object sender, ScrollEventArgs e)
         {
-            if (!(sender is Panel p) || e.NewValue < 0)
+            if (!(sender is ScrollableControl p) || e.NewValue < 0)
                 return;
             switch (e.ScrollOrientation)
             {
@@ -102,8 +168,10 @@ namespace PKHeX.WinForms
                 case ScrollOrientation.VerticalScroll:
                     p.VerticalScroll.Value = Clamp(e.NewValue, p.VerticalScroll);
                     break;
+                default:
+                    throw new ArgumentOutOfRangeException();
             }
-            int Clamp(int value, ScrollProperties prop) => Math.Max(prop.Minimum, Math.Min(prop.Maximum, value));
+            static int Clamp(int value, ScrollProperties prop) => Math.Max(prop.Minimum, Math.Min(prop.Maximum, value));
         }
 
         public static void DoubleBuffered(this DataGridView dgv, bool setting)
@@ -128,22 +196,30 @@ namespace PKHeX.WinForms
         /// <summary>
         /// Iterates the Control's child controls recursively to obtain all controls of the specified type.
         /// </summary>
+        /// <typeparam name="T">Type of control</typeparam>
         /// <param name="control"></param>
-        /// <param name="type"></param>
-        /// <returns></returns>
-        public static IEnumerable<Control> GetAllControlsOfType(Control control, Type type)
+        /// <returns>All children and subchildren contained by <see cref="control"/>.</returns>
+        public static IEnumerable<Control> GetAllControlsOfType<T>(Control control) where T : Control
         {
-            var controls = control.Controls.Cast<Control>().ToList();
-            return controls.SelectMany(ctrl => GetAllControlsOfType(ctrl, type))
-                .Concat(controls)
-                .Where(c => c.GetType() == type);
+            foreach (var c in control.Controls.Cast<Control>())
+            {
+                if (c is T match)
+                    yield return match;
+                foreach (var sub in GetAllControlsOfType<T>(c))
+                    yield return sub;
+            }
         }
 
         /// <summary>
         /// Reads in custom extension types that allow the program to open more extensions.
         /// </summary>
         /// <param name="exts">Extensions to add</param>
-        public static void AddSaveFileExtensions(IEnumerable<string> exts) => CustomSaveExtensions.AddRange(exts.Except(CustomSaveExtensions));
+        public static void AddSaveFileExtensions(IEnumerable<string> exts)
+        {
+            // Only add new (unique) extensions
+            var newExtensions = exts.Distinct().Except(CustomSaveExtensions);
+            CustomSaveExtensions.AddRange(newExtensions);
+        }
 
         private static readonly List<string> CustomSaveExtensions = new List<string>
         {
@@ -157,18 +233,22 @@ namespace PKHeX.WinForms
             "SaveRAM", // BizHawk
         };
 
+        public static bool IsFileExtensionSAV(string file) => CustomSaveExtensions.Contains(Path.GetExtension(file));
+
         private static string ExtraSaveExtensions => ";" + string.Join(";", CustomSaveExtensions.Select(z => $"*.{z}"));
+
+        public static bool DetectSaveFileOnFileOpen { private get; set; } = true;
 
         /// <summary>
         /// Opens a dialog to open a <see cref="SaveFile"/>, <see cref="PKM"/> file, or any other supported file.
         /// </summary>
-        /// <param name="Extensions">Misc extensions of <see cref="PKM"/> files supported by the SAV.</param>
+        /// <param name="extensions">Misc extensions of <see cref="PKM"/> files supported by the Save File.</param>
         /// <param name="path">Output result path</param>
         /// <returns>Result of whether or not a file is to be loaded from the output path.</returns>
-        public static bool OpenSAVPKMDialog(IEnumerable<string> Extensions, out string path)
+        public static bool OpenSAVPKMDialog(IEnumerable<string> extensions, out string path)
         {
-            string supported = string.Join(";", Extensions.Select(s => $"*.{s}").Concat(new[] { "*.pkm" }));
-            OpenFileDialog ofd = new OpenFileDialog
+            string supported = string.Join(";", extensions.Select(s => $"*.{s}").Concat(new[] { "*.pkm" }));
+            using var ofd = new OpenFileDialog
             {
                 Filter = "All Files|*.*" +
                          $"|Supported Files (*.*)|main;*.bin;{supported};*.bak" + ExtraSaveExtensions +
@@ -180,7 +260,9 @@ namespace PKHeX.WinForms
 
             // Detect main
             string msg = null;
-            var sav = SaveDetection.DetectSaveFile(Environment.GetLogicalDrives(), ref msg);
+            SaveFile sav = null;
+            if (DetectSaveFileOnFileOpen)
+                sav = SaveDetection.DetectSaveFile(Environment.GetLogicalDrives(), ref msg);
             if (sav == null && !string.IsNullOrWhiteSpace(msg))
                 Error(msg);
 
@@ -205,13 +287,14 @@ namespace PKHeX.WinForms
         public static bool SavePKMDialog(PKM pk)
         {
             string pkx = pk.Extension;
-            bool allowEncrypted = pk.Format > 3 || pk is PK3;
-            SaveFileDialog sfd = new SaveFileDialog
-            {
-                Filter = $"Decrypted PKM File|*.{pkx}" +
-                         (allowEncrypted ? $"|Encrypted PKM File|*.e{pkx.Substring(1)}" : "") +
+            bool allowEncrypted = pk.Format >= 3 && pkx[0] == 'p';
+            var genericFilter = $"Decrypted PKM File|*.{pkx}" +
+                         (allowEncrypted ? $"|Encrypted PKM File|*.e{pkx.Substring(1)}" : string.Empty) +
                          "|Binary File|*.bin" +
-                         "|All Files|*.*",
+                         "|All Files|*.*";
+            using var sfd = new SaveFileDialog
+            {
+                Filter = genericFilter,
                 DefaultExt = pkx,
                 FileName = Util.CleanFileName(pk.FileName)
             };
@@ -226,7 +309,7 @@ namespace PKHeX.WinForms
         {
             SaveBackup(path);
             string ext = Path.GetExtension(path);
-            var data = $".{pkx}" == ext ? pk.DecryptedBoxData : pk.EncryptedPartyData;
+            var data = $".{pkx}" == ext ? pk.DecryptedPartyData : pk.EncryptedPartyData;
             File.WriteAllBytes(path, data);
         }
 
@@ -244,95 +327,100 @@ namespace PKHeX.WinForms
         /// <summary>
         /// Opens a dialog to save a <see cref="SaveFile"/> file.
         /// </summary>
-        /// <param name="SAV"><see cref="SaveFile"/> to be saved.</param>
-        /// <param name="CurrentBox">Box the player will be greeted with when accessing the PC ingame.</param>
+        /// <param name="sav"><see cref="SaveFile"/> to be saved.</param>
+        /// <param name="currentBox">Box the player will be greeted with when accessing the PC ingame.</param>
         /// <returns>Result of whether or not the file was saved.</returns>
-        public static bool SaveSAVDialog(SaveFile SAV, int CurrentBox = 0)
+        public static bool ExportSAVDialog(SaveFile sav, int currentBox = 0)
         {
-            // Chunk Error Checking
-            string err = SAV.MiscSaveChecks();
-            if (err.Length > 0 && Prompt(MessageBoxButtons.YesNo, err, MsgSaveExportContinue) != DialogResult.Yes)
-                return false;
-
-            SaveFileDialog main = new SaveFileDialog
+            using var sfd = new SaveFileDialog
             {
-                Filter = SAV.Filter,
-                FileName = SAV.FileName,
+                Filter = sav.Filter,
+                FileName = sav.FileName,
                 FilterIndex = 1000, // default to last, All Files
                 RestoreDirectory = true
             };
-            if (Directory.Exists(SAV.FileFolder))
-                main.InitialDirectory = SAV.FileFolder;
+            if (Directory.Exists(sav.FileFolder))
+                sfd.InitialDirectory = sav.FileFolder;
 
-            // Export
-            if (main.ShowDialog() != DialogResult.OK)
+            if (sfd.ShowDialog() != DialogResult.OK)
                 return false;
+            var path = sfd.FileName;
 
-            if (SAV.HasBox)
-                SAV.CurrentBox = CurrentBox;
+            if (sav.HasBox)
+                sav.CurrentBox = currentBox;
 
-            var ext = Path.GetExtension(main.FileName)?.ToLower();
-            bool dsv = ext == ".dsv";
-            bool gci = ext == ".gci";
+            ExportSAV(sav, path);
+            return true;
+        }
+
+        private static void ExportSAV(SaveFile sav, string path)
+        {
+            var ext = Path.GetExtension(path)?.ToLower();
+            var flags = sav.GetSuggestedFlags(ext);
+
             try
             {
-                File.WriteAllBytes(main.FileName, SAV.Write(dsv, gci));
-                SAV.Edited = false;
-                Alert(MsgSaveExportSuccessPath, main.FileName);
+                File.WriteAllBytes(path, sav.Write(flags));
+                sav.Edited = false;
+                sav.SetFileInfo(path);
+                Alert(MsgSaveExportSuccessPath, path);
             }
             catch (Exception x)
             {
-                if (x is UnauthorizedAccessException || x is FileNotFoundException || x is IOException)
-                    Error(MsgFileWriteFail + Environment.NewLine + x.Message, MsgFileWriteProtectedAdvice);
-                else throw;
+                switch (x)
+                {
+                    case UnauthorizedAccessException _:
+                    case FileNotFoundException _:
+                    case IOException _:
+                        Error(MsgFileWriteFail + Environment.NewLine + x.Message, MsgFileWriteProtectedAdvice);
+                        break;
+                    default:
+                        throw;
+                }
             }
-            return true;
         }
 
         /// <summary>
         /// Opens a dialog to save a <see cref="MysteryGift"/> file.
         /// </summary>
         /// <param name="gift"><see cref="MysteryGift"/> to be saved.</param>
+        /// <param name="origin">Game the gift originates from</param>
         /// <returns>Result of whether or not the file was saved.</returns>
-        public static bool SaveMGDialog(MysteryGift gift)
+        public static bool ExportMGDialog(DataMysteryGift gift, GameVersion origin)
         {
-            SaveFileDialog output = new SaveFileDialog
+            using var sfd = new SaveFileDialog
             {
-                Filter = GetMysterGiftFilter(gift.Format),
+                Filter = GetMysterGiftFilter(gift.Format, origin),
                 FileName = Util.CleanFileName(gift.FileName)
             };
-            if (output.ShowDialog() != DialogResult.OK)
+            if (sfd.ShowDialog() != DialogResult.OK)
                 return false;
 
-            string path = output.FileName;
+            string path = sfd.FileName;
+            SaveBackup(path);
 
-            if (File.Exists(path))
-            {
-                // File already exists, save a .bak
-                string bakpath = $"{path}.bak";
-                if (!File.Exists(bakpath))
-                    File.Move(path, bakpath);
-            }
-
-            File.WriteAllBytes(path, gift.Data);
+            File.WriteAllBytes(path, gift.Write());
             return true;
         }
 
         /// <summary>
         /// Gets the File Dialog filter for a Mystery Gift I/O operation.
         /// </summary>
-        /// <param name="Format">Format specifier for the </param>
-        public static string GetMysterGiftFilter(int Format)
+        /// <param name="format">Format specifier for the </param>
+        /// <param name="origin">Game the format originated from/to</param>
+        public static string GetMysterGiftFilter(int format, GameVersion origin)
         {
             const string all = "|All Files|*.*";
-            switch (Format)
+            return format switch
             {
-                case 4: return "Gen4 Mystery Gift|*.pgt;*.pcd;*.wc4" + all;
-                case 5: return "Gen5 Mystery Gift|*.pgf" + all;
-                case 6: return "Gen6 Mystery Gift|*.wc6;*.wc6full" + all;
-                case 7: return "Gen7 Mystery Gift|*.wc7;*.wc7full" + all;
-                default: return string.Empty;
-            }
+                4 => ("Gen4 Mystery Gift|*.pgt;*.pcd;*.wc4" + all),
+                5 => ("Gen5 Mystery Gift|*.pgf" + all),
+                6 => ("Gen6 Mystery Gift|*.wc6;*.wc6full" + all),
+                7 => (GameVersion.GG.Contains(origin)
+                    ? "Beluga Gift Record|*.wr7" + all
+                    : "Gen7 Mystery Gift|*.wc7;*.wc7full" + all),
+                _ => string.Empty
+            };
         }
     }
 }

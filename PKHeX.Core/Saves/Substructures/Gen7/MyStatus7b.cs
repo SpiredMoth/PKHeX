@@ -1,16 +1,11 @@
 using System;
+using System.Linq;
 
 namespace PKHeX.Core
 {
     public sealed class MyStatus7b : SaveBlock
     {
-        private readonly SaveFile SAV;
-
-        public MyStatus7b(SaveFile sav) : base(sav)
-        {
-            SAV = sav;
-            Offset = ((SAV7b)sav).GetBlockOffset(BelugaBlockIndex.MyStatus);
-        }
+        public MyStatus7b(SAV7b sav, int offset) : base(sav) => Offset = offset;
 
         // Player Information
 
@@ -37,7 +32,29 @@ namespace PKHeX.Core
         public int Gender
         {
             get => Data[Offset + 5];
-            set => Data[Offset + 5] = (byte)value;
+            set => Data[Offset + 5] = OverworldGender = (byte)value;
+        }
+
+        public const int GameSyncIDSize = 16; // 8 bytes
+
+        public string GameSyncID
+        {
+            get
+            {
+                var data = Data.Skip(Offset + 0x10).Take(GameSyncIDSize / 2).Reverse().ToArray();
+                return BitConverter.ToString(data).Replace("-", string.Empty);
+            }
+            set
+            {
+                if (value.Length > 16)
+                    throw new ArgumentException(nameof(value));
+
+                Enumerable.Range(0, value.Length)
+                    .Where(x => x % 2 == 0)
+                    .Reverse()
+                    .Select(x => Convert.ToByte(value.Substring(x, 2), 16))
+                    .ToArray().CopyTo(Data, Offset + 0x10);
+            }
         }
 
         public int Language
@@ -50,6 +67,18 @@ namespace PKHeX.Core
         {
             get => SAV.GetString(Offset + 0x38, 0x1A);
             set => SAV.SetString(value, SAV.OTLength).CopyTo(Data, Offset + 0x38);
+        }
+
+        public byte StarterGender
+        {
+            get => Data[Offset + 0x0B9];
+            set => Data[Offset + 0x0B9] = value;
+        }
+
+        public byte OverworldGender // Model
+        {
+            get => Data[Offset + 0x108];
+            set => Data[Offset + 0x108] = value;
         }
     }
 }

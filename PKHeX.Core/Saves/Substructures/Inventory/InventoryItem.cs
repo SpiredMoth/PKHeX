@@ -1,8 +1,8 @@
-﻿using System.Linq;
+﻿using System.Collections.Generic;
 
 namespace PKHeX.Core
 {
-    public class InventoryItem
+    public sealed class InventoryItem
     {
         public bool New;
         public bool FreeSpace;
@@ -10,13 +10,19 @@ namespace PKHeX.Core
         public InventoryItem Clone() => (InventoryItem) MemberwiseClone();
 
         // Check Pouch Compatibility
-        public bool Valid(ushort[] LegalItems, bool HaX, int MaxItemID)
+        public bool Valid(IList<ushort> LegalItems, int MaxItemID, bool HaX = false)
         {
             if (Index == 0)
                 return true;
-            if (Index <= MaxItemID)
-                return HaX || LegalItems.Contains((ushort)Index);
-            return false;
+            if ((uint) Index > MaxItemID)
+                return false;
+            return HaX || LegalItems.Contains((ushort)Index);
+        }
+
+        public void Clear()
+        {
+            Index = Count = 0;
+            New = FreeSpace = false;
         }
     }
 }

@@ -2,6 +2,7 @@
 using System.Linq;
 using System.Windows.Forms;
 using PKHeX.Core;
+using PKHeX.Drawing;
 
 namespace PKHeX.WinForms
 {
@@ -27,6 +28,7 @@ namespace PKHeX.WinForms
             LoadUnlockedCount();
 
             LB_BoxSelect.SelectedIndex = box;
+            TB_BoxName.MaxLength = SAV.Generation >= 6 ? 14 : 8;
             editing = false;
         }
 
@@ -35,7 +37,7 @@ namespace PKHeX.WinForms
             CB_BG.Items.Clear();
             switch (SAV.Generation)
             {
-                case 3 when !SAV.GameCube:
+                case 3 when SAV is SAV3:
                     CB_BG.Items.AddRange(GameInfo.Strings.wallpapernames.Take(16).ToArray());
                     return true;
                 case 4:
@@ -45,6 +47,9 @@ namespace PKHeX.WinForms
                     return true;
                 case 7:
                     CB_BG.Items.AddRange(GameInfo.Strings.wallpapernames.Take(16).ToArray());
+                    return true;
+                case 8:
+                    CB_BG.Items.AddRange(GameInfo.Strings.wallpapernames);
                     return true;
                 default:
                     return false;
@@ -67,8 +72,6 @@ namespace PKHeX.WinForms
             }
             CB_Unlocked.Items.Clear();
             int max = SAV.BoxCount;
-            if (SAV.Generation == 6)
-                max--; // cover legendary captured unlocks final box, not governed by BoxesUnlocked
             for (int i = 0; i <= max; i++)
                 CB_Unlocked.Items.Add(i);
             CB_Unlocked.SelectedIndex = Math.Min(max, SAV.BoxesUnlocked);
@@ -77,7 +80,7 @@ namespace PKHeX.WinForms
         private void LoadFlags()
         {
             byte[] flags = SAV.BoxFlags;
-            if (flags == null)
+            if (flags.Length == 0)
             {
                 FLP_Flags.Visible = false;
                 return;
@@ -98,7 +101,7 @@ namespace PKHeX.WinForms
             }
         }
 
-        private NumericUpDown[] flagArr = new NumericUpDown[0];
+        private NumericUpDown[] flagArr = Array.Empty<NumericUpDown>();
         private bool editing;
         private bool renamingBox;
 
@@ -137,7 +140,7 @@ namespace PKHeX.WinForms
             if (CB_Unlocked.Visible)
                 SAV.BoxesUnlocked = CB_Unlocked.SelectedIndex;
 
-            Origin.SetData(SAV.Data, 0);
+            Origin.CopyChangesFrom(SAV);
             Close();
         }
 
@@ -146,7 +149,7 @@ namespace PKHeX.WinForms
             if (!editing)
                 SAV.SetBoxWallpaper(LB_BoxSelect.SelectedIndex, CB_BG.SelectedIndex);
 
-            PAN_BG.BackgroundImage = SAV.WallpaperImage(CB_BG.SelectedIndex);
+            PAN_BG.BackgroundImage = SAV.WallpaperImage(LB_BoxSelect.SelectedIndex);
         }
 
         private bool MoveItem(int direction)
@@ -159,7 +162,7 @@ namespace PKHeX.WinForms
             int newIndex = LB_BoxSelect.SelectedIndex + direction;
 
             // Checking bounds of the range
-            if (newIndex < 0 || newIndex >= LB_BoxSelect.Items.Count)
+            if ((uint)newIndex >= LB_BoxSelect.Items.Count)
                 return false; // Index out of range - nothing to do
 
             object selected = LB_BoxSelect.SelectedItem;
@@ -191,7 +194,7 @@ namespace PKHeX.WinForms
             }
             else
             {
-                ChangeBox(null, null);
+                ChangeBox(null, EventArgs.Empty);
             }
 
             editing = renamingBox = false;

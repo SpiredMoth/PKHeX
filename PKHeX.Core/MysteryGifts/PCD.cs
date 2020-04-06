@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 
 namespace PKHeX.Core
 {
@@ -11,7 +12,7 @@ namespace PKHeX.Core
     /// https://projectpokemon.org/home/forums/topic/5870-pok%C3%A9mon-mystery-gift-editor-v143-now-with-bw-support/
     /// See also: http://tccphreak.shiny-clique.net/debugger/pcdfiles.htm
     /// </remarks>
-    public sealed class PCD : MysteryGift
+    public sealed class PCD : DataMysteryGift
     {
         public const int Size = 0x358; // 856
         public override int Format => 4;
@@ -28,33 +29,30 @@ namespace PKHeX.Core
             set => Gift.Ball = value;
         }
 
-        public PCD() => Data = new byte[Size];
-        public PCD(byte[] data) => Data = data;
+        public PCD() : this(new byte[Size]) { }
+        public PCD(byte[] data) : base(data) { }
+
+        public override byte[] Write()
+        {
+            // Ensure PGT content is encrypted
+            var clone = (PCD)Clone();
+            if (clone.Gift.VerifyPKEncryption())
+                clone.Gift = clone.Gift;
+            return clone.Data;
+        }
 
         public PGT Gift
         {
-            get
-            {
-                if (_gift != null)
-                    return _gift;
-                byte[] giftData = new byte[PGT.Size];
-                Array.Copy(Data, 0, giftData, 0, PGT.Size);
-                return _gift = new PGT(giftData);
-            }
-            set => (_gift = value)?.Data.CopyTo(Data, 0);
+            get => _gift ??= new PGT(Data.Slice(0, PGT.Size));
+            set => (_gift = value).Data.CopyTo(Data, 0);
         }
 
-        private PGT _gift;
+        private PGT? _gift;
 
         public byte[] Information
         {
-            get
-            {
-                var data = new byte[Data.Length - PGT.Size];
-                Array.Copy(Data, PGT.Size, data, 0, data.Length);
-                return data;
-            }
-            set => value?.CopyTo(Data, Data.Length - PGT.Size);
+            get => Data.SliceEnd(PGT.Size);
+            set => value.CopyTo(Data, Data.Length - PGT.Size);
         }
 
         public override object Content => Gift.PK;
@@ -73,10 +71,10 @@ namespace PKHeX.Core
 
         public override string CardTitle
         {
-            get => StringConverter.GetString4(Data, 0x104, TitleLength);
+            get => StringConverter4.GetString4(Data, 0x104, TitleLength);
             set
             {
-                byte[] data = StringConverter.SetString4(value, (TitleLength / 2) - 1, TitleLength / 2, 0xFFFF);
+                byte[] data = StringConverter4.SetString4(value, (TitleLength / 2) - 1, TitleLength / 2, 0xFFFF);
                 int len = data.Length;
                 Array.Resize(ref data, 0x48);
                 for (int i = 0; i < len; i++)
@@ -88,7 +86,7 @@ namespace PKHeX.Core
         public ushort CardCompatibility => BitConverter.ToUInt16(Data, 0x14C); // rest of bytes we don't really care about
 
         public override int Species { get => Gift.IsManaphyEgg ? 490 : Gift.Species; set => Gift.Species = value; }
-        public override int[] Moves { get => Gift.Moves; set => Gift.Moves = value; }
+        public override IReadOnlyList<int> Moves { get => Gift.Moves; set => Gift.Moves = value; }
         public override int HeldItem { get => Gift.HeldItem; set => Gift.HeldItem = value; }
         public override bool IsShiny => Gift.IsShiny;
         public override bool IsEgg { get => Gift.IsEgg; set => Gift.IsEgg = value; }
@@ -124,11 +122,64 @@ namespace PKHeX.Core
             return true;
         }
 
-        public override PKM ConvertToPKM(ITrainerInfo SAV)
+        public override PKM ConvertToPKM(ITrainerInfo SAV, EncounterCriteria criteria)
         {
-            return Gift.ConvertToPKM(SAV);
+            return Gift.ConvertToPKM(SAV, criteria);
         }
 
         public bool CanBeReceivedBy(int pkmVersion) => (CardCompatibility >> pkmVersion & 1) == 1;
+
+        protected override bool IsMatchExact(PKM pkm)
+        {
+            var wc = Gift.PK;
+            if (!wc.IsEgg)
+            {
+                if (wc.TID != pkm.TID) return false;
+                if (wc.SID != pkm.SID) return false;
+                if (wc.OT_Name != pkm.OT_Name) return false;
+                if (wc.OT_Gender != pkm.OT_Gender) return false;
+                if (wc.Language != 0 && wc.Language != pkm.Language) return false;
+
+                if (pkm.Format != 4) // transferred
+                {
+                    // met location: deferred to general transfer check
+                    if (wc.CurrentLevel > pkm.Met_Level) return false;
+                }
+                else
+                {
+                    if (wc.Egg_Location + 3000 != pkm.Met_Location) return false;
+                    if (wc.CurrentLevel != pkm.Met_Level) return false;
+                }
+            }
+            else // Egg
+            {
+                if (wc.Egg_Location + 3000 != pkm.Egg_Location && pkm.Egg_Location != Locations.LinkTrade4) // traded
+                    return false;
+                if (wc.CurrentLevel != pkm.Met_Level)
+                    return false;
+                if (pkm.IsEgg && !pkm.IsNative)
+                    return false;
+            }
+
+            if (wc.AltForm != pkm.AltForm && !Legal.IsFormChangeable(pkm, Species))
+                return false;
+
+            if (wc.Ball != pkm.Ball) return false;
+            if (wc.OT_Gender < 3 && wc.OT_Gender != pkm.OT_Gender) return false;
+            if (wc.PID == 1 && pkm.IsShiny) return false;
+            if (wc.Gender != 3 && wc.Gender != pkm.Gender) return false;
+
+            if (pkm is IContestStats s && s.IsContestBelow(wc))
+                return false;
+
+            return true;
+        }
+
+        protected override bool IsMatchDeferred(PKM pkm)
+        {
+            if (!CanBeReceivedBy(pkm.Version))
+                return false;
+            return Species != pkm.Species;
+        }
     }
 }

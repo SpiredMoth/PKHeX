@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Windows.Forms;
 using PKHeX.Core;
 
@@ -14,18 +13,17 @@ namespace PKHeX.WinForms
         {
             InitializeComponent();
             WinFormsUtil.TranslateInterface(this, Main.CurrentLanguage);
-            SAV = (SAV6)sav;
+            SAV = (IPokePuff)sav;
 
-            var puffs = SAV.Puffs;
+            var puffs = SAV.Puff.Puffs;
             Setup(puffs.Length);
             LoadPuffs(puffs);
 
-            new ToolTip().SetToolTip(B_Sort, "Hold CTRL to reverse sort.");
-            new ToolTip().SetToolTip(B_All, "Hold CTRL to best instead of varied.");
+            toolTip1.SetToolTip(B_Sort, "Hold CTRL to reverse sort.");
+            toolTip2.SetToolTip(B_All, "Hold CTRL to best instead of varied.");
         }
 
         private readonly string[] pfa = GameInfo.Strings.puffs;
-        private int PuffCount { get; set; }
 
         private void Setup(int rowCount)
         {
@@ -59,7 +57,6 @@ namespace PKHeX.WinForms
 
         private void LoadPuffs(byte[] Puffs)
         {
-            PuffCount = Puffs.Length;
             for (int i = 0; i < Puffs.Length; i++)
             {
                 dgv.Rows[i].Cells[0].Value = (i + 1).ToString();
@@ -87,41 +84,20 @@ namespace PKHeX.WinForms
 
         private void B_All_Click(object sender, EventArgs e)
         {
-            int[] plus10 = {21, 22};
-            byte[] newpuffs = new byte[PuffCount];
-
-            if (ModifierKeys == Keys.Control)
-            {
-                for (int i = 0; i < PuffCount; i++)
-                    newpuffs[i] = (byte)plus10[Util.Rand.Next(2)];
-            }
-            else
-            {
-                for (int i = 0; i < PuffCount; i++)
-                    newpuffs[i] = (byte)((i % (pfa.Length - 1)) + 1);
-                Util.Shuffle(newpuffs);
-            }
-
-            LoadPuffs(newpuffs);
+            SAV.Puff.MaxCheat(ModifierKeys == Keys.Control);
+            LoadPuffs(SAV.Puff.Puffs);
         }
 
         private void B_None_Click(object sender, EventArgs e)
         {
-            byte[] newpuffs = new byte[PuffCount];
-            newpuffs[0] = 1;
-            newpuffs[1] = 2;
-            newpuffs[2] = 3;
-            newpuffs[3] = 4;
-            newpuffs[4] = 5;
-            LoadPuffs(newpuffs);
+            SAV.Puff.Reset();
+            LoadPuffs(SAV.Puff.Puffs);
         }
 
         private void B_Sort_Click(object sender, EventArgs e)
         {
-            bool reverse = ModifierKeys == Keys.Control;
-            var puffs = GetPuffs().GroupBy(z => z != 0);
-            var result = puffs.SelectMany(z => reverse ? z.OrderByDescending(x => x) : z.OrderBy(x => x)).ToArray();
-            LoadPuffs(result);
+            SAV.Puff.Sort(ModifierKeys == Keys.Control);
+            LoadPuffs(SAV.Puff.Puffs);
         }
 
         private byte[] GetPuffs()
@@ -139,8 +115,8 @@ namespace PKHeX.WinForms
         private void B_Save_Click(object sender, EventArgs e)
         {
             var puffs = GetPuffs();
-            SAV.Puffs = puffs;
-            SAV.PuffCount = puffs.Length;
+            SAV.Puff.Puffs = puffs;
+            SAV.Puff.PuffCount = puffs.Length;
             Close();
         }
     }

@@ -15,6 +15,8 @@
             Badges = 0x2602,
             TID = 0x2605,
             PikaFriendship = 0x271C,
+            PikaBeachScore = 0x2741,
+            PrinterBrightness = 0x2744,
             PCItems = 0x27E6,
             CurrentBoxIndex = 0x284C,
             Coin = 0x2850,
@@ -38,6 +40,8 @@
             Badges = 0x25F8,
             TID = 0x25FB,
             PikaFriendship = 0x2712,
+            PikaBeachScore = 0x2737,
+            PrinterBrightness = 0x273A,
             PCItems = 0x27DC,
             CurrentBoxIndex = 0x2842,
             Coin = 0x2846,
@@ -51,6 +55,7 @@
             ChecksumOfs = 0x3594,
         };
 
+        public int OT { get; } = 0x2598;
         public int DexCaught { get; private set; }
         public int DexSeen { get; private set; }
         public int Items { get; private set; }
@@ -59,6 +64,8 @@
         public int Badges { get; private set; }
         public int TID { get; private set; }
         public int PikaFriendship { get; private set; }
+        public int PikaBeachScore { get; private set; }
+        public int PrinterBrightness { get; private set; }
         public int PCItems { get; private set; }
         public int CurrentBoxIndex { get; private set; }
         public int Coin { get; private set; }

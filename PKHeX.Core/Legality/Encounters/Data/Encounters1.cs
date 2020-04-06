@@ -9,7 +9,7 @@ namespace PKHeX.Core
     /// </summary>
     internal static class Encounters1
     {
-        internal static readonly EncounterArea[] SlotsRBY;
+        internal static readonly EncounterArea1[] SlotsRBY;
         internal static readonly EncounterStatic[] StaticRBY;
 
         static Encounters1()
@@ -31,15 +31,15 @@ namespace PKHeX.Core
             StaticRBY.SetVersion(GameVersion.RBY);
         }
 
-        internal static readonly string[] TradeOTG1 = {null, "トレーナー", "Trainer", "Dresseur", "Allenatore", "Trainer", null, "Entrenador", "트레이너"};
+        internal static readonly string[] TradeOTG1 = {string.Empty, "トレーナー", "Trainer", "Dresseur", "Allenatore", "Trainer", string.Empty, "Entrenador", "트레이너"};
 
-        private static EncounterArea[] GetAreas()
+        private static EncounterArea1[] GetAreas()
         {
-            var red_gw = EncounterArea.GetArray1_GW(Util.GetBinaryResource("encounter_red.pkl"));
-            var blu_gw = EncounterArea.GetArray1_GW(Util.GetBinaryResource("encounter_blue.pkl"));
-            var ylw_gw = EncounterArea.GetArray1_GW(Util.GetBinaryResource("encounter_yellow.pkl"));
-            var rb_fish = EncounterArea.GetArray1_F(Util.GetBinaryResource("encounter_rb_f.pkl"));
-            var ylw_fish = EncounterArea.GetArray1_FY(Util.GetBinaryResource("encounter_yellow_f.pkl"));
+            var red_gw = EncounterArea1.GetArray1GrassWater(Util.GetBinaryResource("encounter_red.pkl"));
+            var blu_gw = EncounterArea1.GetArray1GrassWater(Util.GetBinaryResource("encounter_blue.pkl"));
+            var ylw_gw = EncounterArea1.GetArray1GrassWater(Util.GetBinaryResource("encounter_yellow.pkl"));
+            var rb_fish = EncounterArea1.GetArray1Fishing(Util.GetBinaryResource("encounter_rb_f.pkl"));
+            var ylw_fish = EncounterArea1.GetArray1FishingYellow(Util.GetBinaryResource("encounter_yellow_f.pkl"));
 
             MarkEncountersVersion(red_gw, GameVersion.RD);
             MarkEncountersVersion(blu_gw, GameVersion.BU);
@@ -168,7 +168,7 @@ namespace PKHeX.Core
             new EncounterTradeCatchRate { Species = 098, Level = 15, Catch_Rate = 204, Version = GameVersion.RBY }, // Krabby - Wild Growlithe (GSC: 5)
 
             //new EncounterTrade { Species = 122, Level = 08 }, // Mr. Mime - Wild Clefairy (GSC: 6)
-            new EncounterTradeCatchRate { Species = 067, Level = 16, Catch_Rate = 180, EvolveOnTrade = true, Version = GameVersion.RBY }, // Machoke - Wild Cubone (GSC: 5)
+            new EncounterTrade { Species = 067, Level = 16, Version = GameVersion.RBY, EvolveOnTrade = true }, // Machoke - Wild Cubone (GSC: 5)
             new EncounterTrade { Species = 112, Level = 15, Version = GameVersion.RBY }, // Rhydon - Surf Golduck (GSC: 10)
             new EncounterTrade { Species = 087, Level = 15, Version = GameVersion.RBY }, // Dewgong - Wild Growlithe (GSC: 5)
             new EncounterTrade { Species = 089, Level = 25, Version = GameVersion.RBY }, // Muk - Wild Kangaskhan (GSC: 5)
@@ -190,7 +190,7 @@ namespace PKHeX.Core
             new EncounterTradeCatchRate { Species = 098, Level = 05, Catch_Rate = 204, Version = GameVersion.RBY }, // Krabby - Egg Growlithe (RBY: 15)
 
           //new EncounterTrade { Species = 122, Level = 08 }, // Mr. Mime - Wild Clefairy (RBY: 6)
-            new EncounterTradeCatchRate { Species = 067, Level = 05, Catch_Rate = 180, EvolveOnTrade = true, Version = GameVersion.RBY }, // Machoke - Egg Cubone (RBY: 20)
+            new EncounterTrade { Species = 067, Level = 05, Version = GameVersion.RBY, EvolveOnTrade = true }, // Machoke - Egg Cubone (RBY: 20)
             new EncounterTrade { Species = 112, Level = 10, Version = GameVersion.RBY }, // Rhydon - Surf Golduck (RBY: 15)
             new EncounterTrade { Species = 087, Level = 05, Version = GameVersion.RBY }, // Dewgong - Egg Growlithe (RBY: 15)
             new EncounterTrade { Species = 089, Level = 05, Version = GameVersion.RBY }, // Muk - Egg Kangaskhan (RBY: 25)
@@ -200,10 +200,10 @@ namespace PKHeX.Core
             new EncounterTrade { Species = 047, Level = 05, Version = GameVersion.RBY }, // Parasect - Trade Tangela (GSC 5)
         }).ToArray();
 
-        private static readonly EncounterArea FishOldGood_RBY = new EncounterArea
+        private static readonly EncounterArea1 FishOldGood_RBY = new EncounterArea1
         {
             Location = -1,
-            Slots = new EncounterSlot[]
+            Slots = new[]
             {
                 new EncounterSlot1 {Species = 129, LevelMin = 05, LevelMax = 05, Type = SlotType.Old_Rod,  Rate = -1, Version = GameVersion.RBY }, // Magikarp
                 new EncounterSlot1 {Species = 118, LevelMin = 10, LevelMax = 10, Type = SlotType.Good_Rod, Rate = -1, Version = GameVersion.RBY }, // Goldeen

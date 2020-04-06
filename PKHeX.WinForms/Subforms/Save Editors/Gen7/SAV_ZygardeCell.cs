@@ -31,16 +31,17 @@ namespace PKHeX.WinForms
             var combo = dgv.Columns[2] as DataGridViewComboBoxColumn;
             foreach (string t in states)
                 combo.Items.Add(t); // add only the Names
+            dgv.Columns[0].ValueType = typeof(int);
 
             // Populate Grid
             dgv.Rows.Add(CellCount);
-            var locations = SAV.SM ? locationsSM : locationsUSUM;
+            var locations = SAV is SAV7SM ? locationsSM : locationsUSUM;
             for (int i = 0; i < CellCount; i++)
             {
                 if (cells[i] > 2)
                     throw new ArgumentException();
 
-                dgv.Rows[i].Cells[0].Value = (i+1).ToString();
+                dgv.Rows[i].Cells[0].Value = (i+1);
                 dgv.Rows[i].Cells[1].Value = locations[i];
                 dgv.Rows[i].Cells[2].Value = states[cells[i]];
             }
@@ -49,7 +50,7 @@ namespace PKHeX.WinForms
         private const int cellstotal = 161;
         private const int cellscollected = 169;
         private const int celloffset = 0xC6;
-        private int CellCount => SAV.USUM ? 100 : 95;
+        private int CellCount => SAV is SAV7USUM ? 100 : 95;
         private readonly string[] states = {"None", "Available", "Received"};
 
         private void B_Save_Click(object sender, EventArgs e)
@@ -67,11 +68,11 @@ namespace PKHeX.WinForms
 
             constants[cellstotal] = (ushort)NUD_Cells.Value;
             constants[cellscollected] = (ushort)NUD_Collected.Value;
-            if (SAV.USUM)
+            if (SAV is SAV7USUM)
                 SAV.SetRecord(72, (int)NUD_Collected.Value);
 
             SAV.EventConsts = constants;
-            Origin.SetData(SAV.Data, 0);
+            Origin.CopyChangesFrom(SAV);
 
             Close();
         }
@@ -92,7 +93,7 @@ namespace PKHeX.WinForms
             }
 
             NUD_Collected.Value += added;
-            if (!SAV.USUM)
+            if (!(SAV is SAV7USUM))
                 NUD_Cells.Value += added;
 
             System.Media.SystemSounds.Asterisk.Play();

@@ -5,11 +5,26 @@ using System.Linq;
 
 namespace PKHeX.Core
 {
-    public class StringInstruction
+    /// <summary>
+    /// Batch Editing instruction
+    /// </summary>
+    /// <remarks>
+    /// Can be a filter (skip), or a modification instruction (modify)
+    /// </remarks>
+    /// <see cref="Exclude"/>
+    /// <see cref="Require"/>
+    /// <see cref="Apply"/>
+    public sealed class StringInstruction
     {
-        public string PropertyName { get; private set; }
+        public string PropertyName { get; }
         public string PropertyValue { get; private set; }
         public bool Evaluator { get; private set; }
+
+        public StringInstruction(string name, string value)
+        {
+            PropertyName = name;
+            PropertyValue = value;
+        }
 
         public void SetScreenedValue(string[] arr)
         {
@@ -17,11 +32,20 @@ namespace PKHeX.Core
             PropertyValue = index > -1 ? index.ToString() : PropertyValue;
         }
 
-        public static readonly char[] Prefixes = { Apply, Require, Exclude };
+        public static readonly IReadOnlyList<char> Prefixes = new[] { Apply, Require, Exclude };
         private const char Exclude = '!';
         private const char Require = '=';
         private const char Apply = '.';
         private const char SplitRange = ',';
+
+        /// <summary>
+        /// Character which divides a property and a value.
+        /// </summary>
+        /// <remarks>
+        /// Example:
+        /// =Species=1
+        /// The second = is the split.
+        /// </remarks>
         public const char SplitInstruction = '=';
 
         // Extra Functionality
@@ -54,7 +78,7 @@ namespace PKHeX.Core
                 let eval = line[0] == Require
                 let split = line.Substring(1).Split(SplitInstruction)
                 where split.Length == 2 && !string.IsNullOrWhiteSpace(split[0])
-                select new StringInstruction { PropertyName = split[0], PropertyValue = split[1], Evaluator = eval };
+                select new StringInstruction(split[0], split[1]) { Evaluator = eval };
         }
 
         public static IEnumerable<StringInstruction> GetInstructions(IEnumerable<string> lines)
@@ -63,9 +87,12 @@ namespace PKHeX.Core
             return from line in raw
                 select line.Split(SplitInstruction) into split
                 where split.Length == 2
-                select new StringInstruction { PropertyName = split[0], PropertyValue = split[1] };
+                select new StringInstruction(split[0], split[1]);
         }
 
+        /// <summary>
+        /// Weeds out invalid lines and only returns those with a valid first character.
+        /// </summary>
         private static IEnumerable<string> GetRelevantStrings(IEnumerable<string> lines, params char[] pieces)
         {
             return lines.Where(line => !string.IsNullOrEmpty(line) && pieces.Any(z => z == line[0]));

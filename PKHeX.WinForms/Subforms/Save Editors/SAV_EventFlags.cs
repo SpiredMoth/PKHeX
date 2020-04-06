@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
-using System.IO;
 using System.Linq;
 using System.Windows.Forms;
 using PKHeX.Core;
@@ -71,8 +71,6 @@ namespace PKHeX.WinForms
         private int constEntry = -1;
         private string gamePrefix = "unk";
 
-        private const ulong MagearnaConst = 0xCBE05F18356504AC;
-
         private void B_Cancel_Click(object sender, EventArgs e)
         {
             Close();
@@ -85,79 +83,48 @@ namespace PKHeX.WinForms
                 flags[GetControlNum(flag)] = flag.Checked;
             SAV.EventFlags = flags;
 
-            HandleSpecialFlags();
-
             // Copy back Constants
-            ChangeConstantIndex(null, null); // Trigger Saving
+            ChangeConstantIndex(null, EventArgs.Empty); // Trigger Saving
             SAV.EventConsts = Constants;
-            SAV.Data.CopyTo(Origin.Data, 0);
-            Origin.Edited = true;
+
+            HandleSpecialFlags();
+            Origin.CopyChangesFrom(SAV);
             Close();
         }
 
         private void HandleSpecialFlags()
         {
-            if (SAV.SM) // Ensure magearna event flag has magic constant
-            {
-                BitConverter.GetBytes(flags[3100] ? MagearnaConst : 0).CopyTo(SAV.Data, ((SAV7)SAV).QRSaveData + 0x168);
-            }
+            if (SAV is SAV7SM s7) // Ensure magearna event flag has magic constant
+                s7.UpdateMagearnaConstant();
         }
 
         private string[] GetStringList(string type)
         {
-            switch (SAV.Version)
+            gamePrefix = GetResourceSuffix(SAV.Version);
+            return GameLanguage.GetStrings(gamePrefix, GameInfo.CurrentLanguage, type);
+        }
+
+        private static string GetResourceSuffix(GameVersion ver)
+        {
+            switch (ver)
             {
-                case GameVersion.X:
-                case GameVersion.Y:
-                    gamePrefix = "xy";
-                    break;
-                case GameVersion.OR:
-                case GameVersion.AS:
-                    gamePrefix = "oras";
-                    break;
-                case GameVersion.SN:
-                case GameVersion.MN:
-                    gamePrefix = "sm";
-                    break;
-                case GameVersion.US:
-                case GameVersion.UM:
-                    gamePrefix = "usum";
-                    break;
-                case GameVersion.DP:
-                    gamePrefix = "dp";
-                    break;
-                case GameVersion.Pt:
-                    gamePrefix = "pt";
-                    break;
-                case GameVersion.HGSS:
-                    gamePrefix = "hgss";
-                    break;
-                case GameVersion.BW:
-                    gamePrefix = "bw";
-                    break;
-                case GameVersion.B2W2:
-                    gamePrefix = "b2w2";
-                    break;
-                case GameVersion.R:
-                case GameVersion.S:
-                case GameVersion.RS:
-                    gamePrefix = "rs";
-                    break;
-                case GameVersion.E:
-                    gamePrefix = "e";
-                    break;
-                case GameVersion.FR:
-                case GameVersion.LG:
-                case GameVersion.FRLG:
-                    gamePrefix = "frlg";
-                    break;
-                case GameVersion.C:
-                    gamePrefix = "c";
-                    break;
+                case GameVersion.X: case GameVersion.Y: case GameVersion.XY: return "xy";
+                case GameVersion.OR: case GameVersion.AS: case GameVersion.ORAS: return "oras";
+                case GameVersion.SN: case GameVersion.MN: case GameVersion.SM: return "sm";
+                case GameVersion.US: case GameVersion.UM: case GameVersion.USUM: return "usum";
+                case GameVersion.D: case GameVersion.P: case GameVersion.DP: return "dp";
+                case GameVersion.Pt: case GameVersion.DPPt: return "pt";
+                case GameVersion.HG: case GameVersion.SS: case GameVersion.HGSS: return "hgss";
+                case GameVersion.B: case GameVersion.W: case GameVersion.BW: return "bw";
+                case GameVersion.B2: case GameVersion.W2: case GameVersion.B2W2: return "b2w2";
+                case GameVersion.R: case GameVersion.S: case GameVersion.RS: return "rs";
+                case GameVersion.E: return "e";
+                case GameVersion.FR: case GameVersion.LG: case GameVersion.FRLG: return "frlg";
+                case GameVersion.C: return "c";
+                case GameVersion.GD: case GameVersion.SV: case GameVersion.GS: return "gs";
                 default:
-                    return null;
+                    throw new ArgumentException(nameof(GameVersion));
             }
-            return GameInfo.GetStrings(gamePrefix, GameInfo.CurrentLanguage, type);
         }
 
         private void AddFlagList(string[] list)
@@ -184,7 +151,11 @@ namespace PKHeX.WinForms
                     num.Add(n);
                     desc.Add(split[1]);
                 }
-                catch { }
+                catch
+                {
+                    // Ignore bad user values
+                    Debug.WriteLine(string.Concat(split));
+                }
             }
             if (num.Count == 0)
             {
@@ -250,7 +221,11 @@ namespace PKHeX.WinForms
                     desc.Add(split[1]);
                     enums.Add(split.Length == 3 ? split[2] : string.Empty);
                 }
-                catch { }
+                catch
+                {
+                    // Ignore bad user values
+                    Debug.WriteLine(string.Concat(split));
+                }
             }
             if (num.Count == 0)
             {
@@ -289,17 +264,16 @@ namespace PKHeX.WinForms
                 }
                 var cb = new ComboBox
                 {
-                    ValueMember = "Value",
-                    DisplayMember = "Text",
                     Margin = Padding.Empty,
                     Width = 150,
                     Name = constCBTag + num[i].ToString("0000"),
                     DropDownStyle = ComboBoxStyle.DropDownList,
                     BindingContext = BindingContext,
-                    DataSource = map,
-                    SelectedIndex = 0,
                     DropDownWidth = Width + 100
                 };
+                cb.InitializeBinding();
+                cb.DataSource = map;
+                cb.SelectedIndex = 0;
                 cb.SelectedValueChanged += ToggleConst;
                 mtb.TextChanged += ToggleConst;
                 TLP_Const.Controls.Add(lbl, 0, i);
@@ -322,12 +296,8 @@ namespace PKHeX.WinForms
 
         private static int GetControlNum(Control c)
         {
-            try
-            {
-                string source = c.Name.Split('_')[1];
-                return Convert.ToInt32(source);
-            }
-            catch { return 0; }
+            string source = c.Name.Split('_')[1];
+            return int.TryParse(source, out var val) ? val : 0;
         }
 
         private void ChangeCustomBool(object sender, EventArgs e)
@@ -436,7 +406,7 @@ namespace PKHeX.WinForms
 
         private void OpenSAV(object sender, EventArgs e)
         {
-            OpenFileDialog ofd = new OpenFileDialog();
+            using var ofd = new OpenFileDialog();
             if (ofd.ShowDialog() == DialogResult.OK)
                 LoadSAV(sender, ofd.FileName);
         }
@@ -451,49 +421,24 @@ namespace PKHeX.WinForms
 
         private void DiffSaves()
         {
-            if (!File.Exists(TB_OldSAV.Text)) { WinFormsUtil.Alert(string.Format(MsgSaveNumberInvalid, 1)); return; }
-            if (!File.Exists(TB_NewSAV.Text)) { WinFormsUtil.Alert(string.Format(MsgSaveNumberInvalid, 2)); return; }
-            if (new FileInfo(TB_OldSAV.Text).Length > 0x100000) { WinFormsUtil.Alert(string.Format(MsgSaveNumberInvalid, 1)); return; }
-            if (new FileInfo(TB_NewSAV.Text).Length > 0x100000) { WinFormsUtil.Alert(string.Format(MsgSaveNumberInvalid, 2)); return; }
-
-            var s1 = SaveUtil.GetVariantSAV(TB_OldSAV.Text);
-            var s2 = SaveUtil.GetVariantSAV(TB_NewSAV.Text);
-            if (s1 == null) { WinFormsUtil.Alert(string.Format(MsgSaveNumberInvalid, 1)); return; }
-            if (s2 == null) { WinFormsUtil.Alert(string.Format(MsgSaveNumberInvalid, 2)); return; }
-
-            if (s1.GetType() != s2.GetType()) { WinFormsUtil.Alert(MsgSaveDifferentTypes, $"S1: {s1.GetType().Name}", $"S2: {s2.GetType().Name}"); return; }
-            if (s1.Version != s2.Version) { WinFormsUtil.Alert(MsgSaveDifferentVersions, $"S1: {s1.Version}", $"S2: {s2.Version}"); return; }
-
-            var tbIsSet = new List<int>();
-            var tbUnSet = new List<int>();
-            var r = new List<string>();
-            bool[] oldBits = s1.EventFlags;
-            bool[] newBits = s2.EventFlags;
-            var oldConst = s1.EventConsts;
-            var newConst = s2.EventConsts;
-
-            for (int i = 0; i < oldBits.Length; i++)
+            var diff = new EventBlockDiff(TB_OldSAV.Text, TB_NewSAV.Text);
+            if (!string.IsNullOrWhiteSpace(diff.Message))
             {
-                if (oldBits[i] != newBits[i])
-                    (newBits[i] ? tbIsSet : tbUnSet).Add(i);
-            }
-            TB_IsSet.Text = string.Join(", ", tbIsSet.Select(z => $"{z:0000}"));
-            TB_UnSet.Text = string.Join(", ", tbUnSet.Select(z => $"{z:0000}"));
-
-            for (int i = 0; i < newConst.Length; i++)
-            {
-                if (oldConst[i] != newConst[i])
-                    r.Add($"{i}: {oldConst[i]}->{newConst[i]}");
+                WinFormsUtil.Alert(diff.Message);
+                return;
             }
 
-            if (r.Count == 0)
+            TB_IsSet.Text = string.Join(", ", diff.SetFlags.Select(z => $"{z:0000}"));
+            TB_UnSet.Text = string.Join(", ", diff.ClearedFlags.Select(z => $"{z:0000}"));
+
+            if (diff.WorkDiff.Count == 0)
             {
                 WinFormsUtil.Alert("No Event Constant diff found.");
                 return;
             }
 
             if (DialogResult.Yes == WinFormsUtil.Prompt(MessageBoxButtons.YesNo, "Copy Event Constant diff to clipboard?"))
-                Clipboard.SetText(string.Join(Environment.NewLine, r));
+                WinFormsUtil.SetClipboardText(string.Join(Environment.NewLine, diff.WorkDiff));
         }
 
         private static void Main_DragEnter(object sender, DragEventArgs e)

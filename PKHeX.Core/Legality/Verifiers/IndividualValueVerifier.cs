@@ -1,6 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
 using static PKHeX.Core.LegalityCheckStrings;
 
 namespace PKHeX.Core
@@ -49,14 +47,14 @@ namespace PKHeX.Core
 
         private void VerifyIVsMystery(LegalityAnalysis data, MysteryGift g)
         {
-            int[] IVs = g.IVs;
-            if (IVs == null)
+            var IVs = g.IVs;
+            if (IVs.Length == 0)
                 return;
 
             var ivflag = Array.Find(IVs, iv => (byte)(iv - 0xFC) < 3);
             if (ivflag == 0) // Random IVs
             {
-                bool valid = GetIsFixedIVSequenceValid(IVs, data.pkm.IVs);
+                bool valid = Legal.GetIsFixedIVSequenceValidSkipRand(IVs, data.pkm);
                 if (!valid)
                     data.AddLine(GetInvalid(LEncGiftIVMismatch));
             }
@@ -67,23 +65,19 @@ namespace PKHeX.Core
             }
         }
 
-        private static bool GetIsFixedIVSequenceValid(IReadOnlyList<int> IVs, IReadOnlyList<int> pkIVs)
-        {
-            for (int i = 0; i < 6; i++)
-            {
-                if (IVs[i] <= 31 && IVs[i] != pkIVs[i])
-                    return false;
-            }
-            return true;
-        }
-
         private void VerifyIVsSlot(LegalityAnalysis data, EncounterSlot w)
         {
             switch (w.Generation)
             {
                 case 6: VerifyIVsGen6(data, w); break;
                 case 7: VerifyIVsGen7(data); break;
+                case 8: VerifyIVsGen8(data); break;
             }
+        }
+
+        private void VerifyIVsGen8(LegalityAnalysis data)
+        {
+            // todo special rules
         }
 
         private void VerifyIVsGen7(LegalityAnalysis data)
@@ -111,7 +105,7 @@ namespace PKHeX.Core
 
         private void VerifyIVsFlawless(LegalityAnalysis data, int count)
         {
-            if (data.pkm.IVs.Count(iv => iv == 31) < count)
+            if (data.pkm.FlawlessIVCount < count)
                 data.AddLine(GetInvalid(string.Format(LIVF_COUNT0_31, count)));
         }
 
@@ -129,10 +123,10 @@ namespace PKHeX.Core
 
             if (!pkm.IsShiny)
                 return;
-            var banlist = pkm.AltForm == 1 && Legal.EvolveToAlolanForms.Contains(pkm.Species)
-                ? Legal.GoTransferSpeciesShinyBanAlola
-                : Legal.GoTransferSpeciesShinyBan;
-            if (banlist.Contains(pkm.Species))
+            var banlist = Legal.GoTransferSpeciesShinyBan;
+
+            // all Shiny Alola Forms are legal, while some of their respective Kanto Forms are not
+            if (banlist.Contains(pkm.Species) && pkm.AltForm != 1)
                 data.AddLine(GetInvalid(LEncStaticPIDShiny, CheckIdentifier.PID));
         }
 

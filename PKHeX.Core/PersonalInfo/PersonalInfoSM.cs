@@ -9,12 +9,8 @@ namespace PKHeX.Core
     {
         public new const int SIZE = 0x54;
 
-        public PersonalInfoSM(byte[] data)
+        public PersonalInfoSM(byte[] data) : base(data)
         {
-            if (data.Length != SIZE)
-                return;
-            Data = data;
-
             TMHM = GetBits(Data, 0x28, 0x10); // 36-39
             TypeTutors = GetBits(Data, 0x38, 0x4); // 40
 

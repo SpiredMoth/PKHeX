@@ -13,36 +13,85 @@ namespace PKHeX.Core
 
         public override void Verify(LegalityAnalysis data)
         {
-            throw new NotImplementedException();
+            throw new Exception("Don't call via this.");
+        }
+
+        public void VerifyTransferLegalityG12(LegalityAnalysis data)
+        {
+            VerifyTransferVCNatureEXP(data);
+        }
+
+        private void VerifyTransferVCNatureEXP(LegalityAnalysis data)
+        {
+            var pkm = data.pkm;
+            var met = pkm.Met_Level;
+
+            if (met == 100) // check for precise match, can't receive EXP after transfer.
+            {
+                var nature = Experience.GetNatureVC(pkm.EXP);
+                if (nature != pkm.Nature)
+                    data.AddLine(GetInvalid(LTransferNature));
+                return;
+            }
+            if (met <= 2) // Not enough EXP to have every nature -- check for exclusions!
+            {
+                var pi = pkm.PersonalInfo;
+                var growth = pi.EXPGrowth;
+                var nature = pkm.Nature;
+                bool valid = VerifyVCNature(growth, nature);
+                if (!valid)
+                    data.AddLine(GetInvalid(LTransferNature));
+            }
+        }
+
+        private static bool VerifyVCNature(int growth, int nature)
+        {
+            // exp % 25 with a limited amount of EXP does not allow for every nature
+            return growth switch
+            {
+                0 => // MediumFast -- Can't be Brave, Adamant, Naughty, Bold, Docile, or Relaxed
+                (nature < (int) Nature.Brave || nature > (int) Nature.Relaxed),
+                4 => // Fast -- Can't be Gentle, Sassy, Careful, Quirky, Hardy, Lonely, Brave, Adamant, Naughty, or Bold
+                (nature < (int) Nature.Gentle && nature > (int) Nature.Bold),
+                5 => // Slow -- Can't be Impish or Lax
+                (nature != (int) Nature.Impish && nature != (int) Nature.Lax),
+                _ => true
+            };
         }
 
         public void VerifyTransferLegalityG3(LegalityAnalysis data)
         {
             var pkm = data.pkm;
-            if (pkm.Format == 4 && pkm.Met_Location != Legal.Transfer3) // Pal Park
-                data.AddLine(GetInvalid(LEggLocationPalPark));
-            if (pkm.Format != 4 && pkm.Met_Location != Legal.Transfer4)
-                data.AddLine(GetInvalid(LTransferEggLocationTransporter));
+            if (pkm.Format == 4) // Pal Park (3->4)
+            {
+                if (pkm.Met_Location != Locations.Transfer3)
+                    data.AddLine(GetInvalid(LEggLocationPalPark));
+            }
+            else // Transporter (4->5)
+            {
+                if (pkm.Met_Location != Locations.Transfer4)
+                    data.AddLine(GetInvalid(LTransferEggLocationTransporter));
+            }
         }
 
         public void VerifyTransferLegalityG4(LegalityAnalysis data)
         {
             var pkm = data.pkm;
             int loc = pkm.Met_Location;
-            if (loc == Legal.Transfer4)
+            if (loc == Locations.Transfer4)
                 return;
 
-            // Crown met location must be present
+            // Crown met location must be present if transferred via lock capsule
             switch (pkm.Species)
             {
-                case 251: // Celebi
-                    if (loc != Legal.Transfer4_CelebiUnused && loc != Legal.Transfer4_CelebiUsed)
+                case (int)Species.Celebi:
+                    if (loc != Locations.Transfer4_CelebiUnused && loc != Locations.Transfer4_CelebiUsed)
                         data.AddLine(GetInvalid(LTransferMet));
                     break;
-                case 243: // Raikou
-                case 244: // Entei
-                case 245: // Suicune
-                    if (loc != Legal.Transfer4_CrownUnused && loc != Legal.Transfer4_CrownUsed)
+                case (int)Species.Raikou:
+                case (int)Species.Entei:
+                case (int)Species.Suicune:
+                    if (loc != Locations.Transfer4_CrownUnused && loc != Locations.Transfer4_CrownUsed)
                         data.AddLine(GetInvalid(LTransferMet));
                     break;
                 default:
@@ -51,16 +100,60 @@ namespace PKHeX.Core
             }
         }
 
+        public void VerifyTransferLegalityG8(LegalityAnalysis data)
+        {
+            var pkm = data.pkm;
+            int species = pkm.Species;
+            var pi = (PersonalInfoSWSH)PersonalTable.SWSH.GetFormeEntry(species, pkm.AltForm);
+            if (!pi.IsPresentInGame) // Can't transfer
+            {
+                data.AddLine(GetInvalid(LTransferBad));
+            }
+            else if (pkm.AltForm == 0 && (species == (int)Species.Slowpoke || species == (int)Species.Slowbro))
+            {
+                data.AddLine(GetInvalid(LTransferBad)); // can't get regular slowpoke/slowbro yet
+            }
+            else if (data.Info.Generation < 8 && pkm.Format >= 8)
+            {
+                if (!pkm.GG && pkm is IScaledSize s)
+                {
+                    if (s.HeightScalar != 0)
+                        data.AddLine(GetInvalid(LTransferBad));
+                    if (s.WeightScalar != 0)
+                        data.AddLine(GetInvalid(LTransferBad));
+
+                    var enc = data.EncounterMatch;
+                    if (data.Info.Generation == 7 && FormConverter.IsTotemForm(enc.Species, enc.Form, 7))
+                    {
+                        if (Legal.Totem_NoTransfer.Contains(data.EncounterMatch.Species))
+                            data.AddLine(GetInvalid(LTransferBad));
+                        if (pkm.AltForm != FormConverter.GetTotemBaseForm(enc.Species, enc.Form))
+                            data.AddLine(GetInvalid(LTransferBad));
+                    }
+                }
+
+                // Tracker value is set via Transfer across HOME.
+                // Can't validate the actual values (we aren't the server), so we can only check against zero.
+                if (pkm is IHomeTrack home && home.Tracker == 0)
+                {
+                    data.AddLine(Get(LTransferTrackerMissing, ParseSettings.Gen8TransferTrackerNotPresent));
+                    // To the reader: It seems like the best course of action for setting a tracker is:
+                    // - Transfer a 0-Tracker pkm to HOME to get assigned a valid Tracker
+                    // - Don't make one up.
+                }
+            }
+        }
+
         public IEnumerable<CheckResult> VerifyVCEncounter(PKM pkm, IEncounterable encounter, ILocation transfer, IList<CheckMoveResult> Moves)
         {
             // Check existing EncounterMatch
             if (encounter is EncounterInvalid || transfer == null)
-                yield break; // Avoid duplicate invaild message
+                yield break; // Avoid duplicate invalid message
 
             if (encounter is EncounterStatic v && (GameVersion.GBCartEraOnly.Contains(v.Version) || v.Version == GameVersion.VCEvents))
             {
                 bool exceptions = false;
-                exceptions |= v.Version == GameVersion.VCEvents && encounter.Species == 151 && pkm.TID == 22796;
+                exceptions |= v.Version == GameVersion.VCEvents && encounter.Species == (int)Species.Mew && pkm.TID == 22796;
                 if (!exceptions)
                     yield return GetInvalid(LG1GBEncounter);
             }
@@ -83,7 +176,7 @@ namespace PKHeX.Core
                 if (pkm.PersonalInfo.Gender == 31 && pkm.IsShiny) // impossible gender-shiny
                     yield return GetInvalid(LEncStaticPIDShiny, CheckIdentifier.PID);
             }
-            else if (pkm.Species == 201) // unown
+            else if (pkm.Species == (int)Species.Unown)
             {
                 if (pkm.AltForm != 8 && pkm.AltForm != 21 && pkm.IsShiny) // impossibly form-shiny (not I or V)
                     yield return GetInvalid(LEncStaticPIDShiny, CheckIdentifier.PID);

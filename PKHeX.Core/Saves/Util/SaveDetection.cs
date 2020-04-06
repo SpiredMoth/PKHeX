@@ -5,6 +5,9 @@ using System.Linq;
 
 namespace PKHeX.Core
 {
+    /// <summary>
+    /// Utility logic for detecting a <see cref="SaveFile"/> from various locations on the host machine.
+    /// </summary>
     public static class SaveDetection
     {
         /// <summary>
@@ -14,7 +17,7 @@ namespace PKHeX.Core
         /// <param name="skipFirstDrive">Optional parameter to skip the first drive.
         /// The first drive is usually the system hard drive, or can be a floppy disk drive (slower to check, never has expected data).</param>
         /// <returns>Folder path pointing to the Nintendo 3DS folder.</returns>
-        public static string Get3DSLocation(IEnumerable<string> drives, bool skipFirstDrive = true) =>
+        public static string? Get3DSLocation(IEnumerable<string> drives, bool skipFirstDrive = true) =>
             FindConsoleRootFolder(drives, "Nintendo 3DS", skipFirstDrive);
 
         /// <summary>
@@ -24,10 +27,10 @@ namespace PKHeX.Core
         /// <param name="skipFirstDrive">Optional parameter to skip the first drive.
         /// The first drive is usually the system hard drive, or can be a floppy disk drive (slower to check, never has expected data).</param>
         /// <returns>Folder path pointing to the Nintendo folder.</returns>
-        public static string GetSwitchLocation(IEnumerable<string> drives, bool skipFirstDrive = true) =>
+        public static string? GetSwitchLocation(IEnumerable<string> drives, bool skipFirstDrive = true) =>
             FindConsoleRootFolder(drives, "Nintendo", skipFirstDrive);
 
-        private static string FindConsoleRootFolder(IEnumerable<string> drives, string path, bool skipFirstDrive)
+        private static string? FindConsoleRootFolder(IEnumerable<string> drives, string path, bool skipFirstDrive)
         {
             if (skipFirstDrive)
                 drives = drives.Skip(1);
@@ -74,7 +77,7 @@ namespace PKHeX.Core
         /// <param name="error">If this function does not return a save file, this parameter will be set to the error message.</param>
         /// <param name="extra">Paths to check in addition to the default paths</param>
         /// <returns>Reference to a valid save file, if any.</returns>
-        public static SaveFile DetectSaveFile(IReadOnlyList<string> drives, ref string error, params string[] extra)
+        public static SaveFile? DetectSaveFile(IReadOnlyList<string> drives, ref string error, params string[] extra)
         {
             var foldersToCheck = GetFoldersToCheck(drives, extra);
             var result = GetSaveFilePathsFromFolders(foldersToCheck, out var possiblePaths);
@@ -85,7 +88,7 @@ namespace PKHeX.Core
             }
 
             // return newest save file path that is valid
-            var byMostRecent = possiblePaths.OrderByDescending(f => new FileInfo(f).LastWriteTime);
+            var byMostRecent = possiblePaths.OrderByDescending(File.GetLastWriteTimeUtc);
             var saves = byMostRecent.Select(SaveUtil.GetVariantSAV);
             return saves.FirstOrDefault(z => z?.ChecksumsValid == true);
         }
@@ -111,22 +114,27 @@ namespace PKHeX.Core
             var paths = detect ? GetFoldersToCheck(drives, extra) : extra;
             var result = GetSaveFilePathsFromFolders(paths, out var possiblePaths);
             if (!result)
-                return Enumerable.Empty<SaveFile>();
+                yield break;
 
-            var byMostRecent = possiblePaths.OrderByDescending(f => new FileInfo(f).LastWriteTime);
-            return byMostRecent.Select(SaveUtil.GetVariantSAV);
+            var byMostRecent = possiblePaths.OrderByDescending(File.GetLastWriteTimeUtc);
+            foreach (var s in byMostRecent)
+            {
+                var sav = SaveUtil.GetVariantSAV(s);
+                if (sav != null)
+                    yield return sav;
+            }
         }
 
         public static IEnumerable<string> GetFoldersToCheck(IReadOnlyList<string> drives, IEnumerable<string> extra)
         {
-            var foldersToCheck = extra.Where(f => f?.Length > 0).Concat(CustomBackupPaths);
+            var foldersToCheck = extra.Where(f => !string.IsNullOrWhiteSpace(f)).Concat(CustomBackupPaths);
 
             string path3DS = Path.GetPathRoot(Get3DSLocation(drives));
-            if (path3DS != null) // check for Homebrew/CFW backups
+            if (!string.IsNullOrEmpty(path3DS)) // check for Homebrew/CFW backups
                 foldersToCheck = foldersToCheck.Concat(Get3DSBackupPaths(path3DS));
 
             string pathNX = Path.GetPathRoot(GetSwitchLocation(drives));
-            if (pathNX != null) // check for Homebrew/CFW backups
+            if (!string.IsNullOrEmpty(pathNX)) // check for Homebrew/CFW backups
                 foldersToCheck = foldersToCheck.Concat(GetSwitchBackupPaths(pathNX));
 
             return foldersToCheck;
@@ -139,9 +147,11 @@ namespace PKHeX.Core
             {
                 if (!SaveUtil.GetSavesFromFolder(folder, true, out IEnumerable<string> files))
                 {
-                    if (files == null)
+                    if (!(files is string[] msg)) // should always return string[]
                         continue;
-                    possible = files;
+                    if (msg.Length == 0) // folder doesn't exist
+                        continue;
+                    possible = msg;
                     return false;
                 }
                 if (files != null)

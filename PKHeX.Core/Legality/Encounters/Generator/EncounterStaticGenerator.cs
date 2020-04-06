@@ -10,6 +10,7 @@ using static PKHeX.Core.Encounters5;
 using static PKHeX.Core.Encounters6;
 using static PKHeX.Core.Encounters7;
 using static PKHeX.Core.Encounters7b;
+using static PKHeX.Core.Encounters8;
 
 namespace PKHeX.Core
 {
@@ -65,7 +66,7 @@ namespace PKHeX.Core
                 if (!GetIsMatchStatic(pkm, e, lvl))
                     continue;
 
-                if (GetIsMatchDeferred(pkm, e))
+                if (e.IsMatchDeferred(pkm))
                     deferred.Add(e);
                 else
                     yield return e;
@@ -74,143 +75,17 @@ namespace PKHeX.Core
                 yield return e;
         }
 
-        private static bool GetIsMatchDeferred(PKM pkm, EncounterStatic e)
-        {
-            if (pkm.FatefulEncounter != e.Fateful)
-                return true;
-            if (e.Ability == 4 && pkm.AbilityNumber != 4) // BW/2 Jellicent collision with wild surf slot, resolved by duplicating the encounter with any abil
-                return true;
-            return false;
-        }
-
         private static bool GetIsMatchStatic(PKM pkm, EncounterStatic e, int lvl)
         {
-            if (e.Nature != Nature.Random && pkm.Nature != (int)e.Nature)
+            if (!e.IsMatch(pkm, lvl))
                 return false;
-            if (pkm.WasEgg != e.EggEncounter && pkm.Egg_Location == 0 && pkm.Format > 3 && pkm.GenNumber > 3 && !pkm.IsEgg)
-                return false;
-            if (e is EncounterStaticPID p && p.PID != pkm.PID)
-                return false;
-
-            if (pkm.Gen3 && e.EggLocation != 0) // Gen3 Egg
-            {
-                if (pkm.Format == 3 && pkm.IsEgg && e.EggLocation != pkm.Met_Location)
-                    return false;
-            }
-            else if (pkm.VC || (pkm.GenNumber <= 2 && e.EggLocation != 0)) // Gen2 Egg
-            {
-                if (pkm.Format <= 2)
-                {
-                    if (pkm.IsEgg)
-                    {
-                        if (pkm.Met_Location != 0 && pkm.Met_Level != 0)
-                            return false;
-                    }
-                    else
-                    {
-                        switch (pkm.Met_Level)
-                        {
-                            case 0 when pkm.Met_Location != 0:
-                                return false;
-                            case 1 when pkm.Met_Location == 0:
-                                return false;
-                            default:
-                                if (pkm.Met_Location == 0 && pkm.Met_Level != 0)
-                                    return false;
-                                break;
-                        }
-                    }
-                    if (pkm.Met_Level == 1)
-                        lvl = 5; // met @ 1, hatch @ 5.
-                }
-            }
-            else if (e.EggLocation != pkm.Egg_Location)
-            {
-                if (pkm.IsEgg) // unhatched
-                {
-                    if (e.EggLocation != pkm.Met_Location)
-                        return false;
-                    if (pkm.Egg_Location != 0)
-                        return false;
-                }
-                else if (pkm.Gen4)
-                {
-                    if (pkm.Egg_Location != 2002) // Link Trade
-                    {
-                        // check Pt/HGSS data
-                        if (pkm.Format <= 4)
-                            return false; // must match
-                        if (e.EggLocation >= 3000 || e.EggLocation <= 2010) // non-Pt/HGSS egg gift
-                            return false;
-
-                        // transferring 4->5 clears pt/hgss location value and keeps Faraway Place
-                        if (pkm.Egg_Location != 3002) // Faraway Place
-                            return false;
-                    }
-                }
-                else
-                {
-                    if (pkm.Egg_Location != 30002) // Link Trade
-                        return false;
-                }
-            }
-            else if (e.EggLocation != 0 && pkm.Gen4)
-            {
-                // Check the inverse scenario for 4->5 eggs
-                if (e.EggLocation < 3000 && e.EggLocation > 2010) // Pt/HGSS egg gift
-                {
-                    if (pkm.Format > 4)
-                        return false; // locations match when it shouldn't
-                }
-            }
-
-            if (pkm.HasOriginalMetLocation)
-            {
-                if (!e.EggEncounter && e.Location != 0 && e.Location != pkm.Met_Location)
-                    return false;
-                if (e.Level != lvl)
-                {
-                    if (!(pkm.Format == 3 && e.EggEncounter && lvl == 0))
-                        return false;
-                }
-            }
-            else if (e.Level > lvl)
-            {
-                return false;
-            }
-
-            if (e.Gender != -1 && e.Gender != pkm.Gender)
-                return false;
-            if (e.Form != pkm.AltForm && !e.SkipFormCheck && !IsFormChangeable(pkm, e.Species))
-                return false;
-            if (e.EggLocation == 60002 && e.Relearn.Length == 0 && pkm.RelearnMoves.Any(z => z != 0)) // gen7 eevee edge case
-                return false;
-
-            if (e.IVs != null && (e.Generation > 2 || pkm.Format <= 2)) // 1,2->7 regenerates IVs, only check if original IVs still exist
-            {
-                for (int i = 0; i < 6; i++)
-                {
-                    if (e.IVs[i] != -1 && e.IVs[i] != pkm.IVs[i])
-                        return false;
-                }
-            }
-
-            if (pkm is IContestStats s && s.IsContestBelow(e))
-                return false;
-
-            // Defer to EC/PID check
-            // if (e.Shiny != null && e.Shiny != pkm.IsShiny)
-            // continue;
-
-            // Defer ball check to later
-            // if (e.Gift && pkm.Ball != 4) // PokéBall
-            // continue;
 
             if (pkm is PK1 pk1 && pk1.Gen1_NotTradeback && !IsValidCatchRatePK1(e, pk1))
                 return false;
 
             if (!ParseSettings.AllowGBCartEra && GameVersion.GBCartEraOnly.Contains(e.Version))
                 return false;
+
             return true;
         }
 
@@ -234,43 +109,44 @@ namespace PKHeX.Core
 
         private static EncounterStatic GetRBYStaticTransfer(int species, int pkmMetLevel)
         {
-            var enc = new EncounterStatic
+            bool mew = species == (int)Species.Mew;
+            return new EncounterStatic
             {
                 Species = species,
                 Gift = true, // Forces Poké Ball
                 Ability = TransferSpeciesDefaultAbility_1.Contains(species) ? 1 : 4, // Hidden by default, else first
-                Shiny = species == 151 ? Shiny.Never : Shiny.Random,
-                Fateful = species == 151,
+                Shiny = mew ? Shiny.Never : Shiny.Random,
+                Fateful = mew,
                 Location = Transfer1,
                 EggLocation = 0,
                 Level = pkmMetLevel,
                 Generation = 7,
-                Version = GameVersion.RBY
+                Version = GameVersion.RBY,
+                FlawlessIVCount = mew ? 5 : 3,
             };
-            enc.FlawlessIVCount = enc.Fateful ? 5 : 3;
-            return enc;
         }
 
         private static EncounterStatic GetGSStaticTransfer(int species, int pkmMetLevel)
         {
-            var enc = new EncounterStatic
+            bool mew = species == (int) Species.Mew;
+            bool fateful = mew || species == (int) Species.Celebi;
+            return new EncounterStatic
             {
                 Species = species,
                 Gift = true, // Forces Poké Ball
                 Ability = TransferSpeciesDefaultAbility_2.Contains(species) ? 1 : 4, // Hidden by default, else first
-                Shiny = species == 151 ? Shiny.Never : Shiny.Random,
-                Fateful = species == 151 || species == 251,
+                Shiny = mew ? Shiny.Never : Shiny.Random,
+                Fateful = fateful,
                 Location = Transfer2,
                 EggLocation = 0,
                 Level = pkmMetLevel,
                 Generation = 7,
-                Version = GameVersion.GSC
+                Version = GameVersion.GSC,
+                FlawlessIVCount = fateful ? 5 : 3
             };
-            enc.FlawlessIVCount = enc.Fateful ? 5 : 3;
-            return enc;
         }
 
-        internal static EncounterStatic GetStaticLocation(PKM pkm, int species = -1)
+        internal static EncounterStatic? GetStaticLocation(PKM pkm, int species = -1)
         {
             switch (pkm.GenNumber)
             {
@@ -293,7 +169,7 @@ namespace PKHeX.Core
         {
             var catch_rate = pk1.Catch_Rate;
             // Pure gen 1, trades can be filter by catch rate
-            if (pk1.Species == 25 || pk1.Species == 26)
+            if (pk1.Species == (int)Species.Pikachu || pk1.Species == (int)Species.Raichu)
             {
                 if (catch_rate == 190) // Red Blue Pikachu, is not a static encounter
                     return false;
@@ -304,7 +180,7 @@ namespace PKHeX.Core
             if (e.Version == GameVersion.Stadium)
             {
                 // Amnesia Psyduck has different catch rates depending on language
-                if (e.Species == 054)
+                if (e.Species == (int)Species.Psyduck)
                     return catch_rate == (pk1.Japanese ? 167 : 168);
                 return GBRestrictions.Stadium_CatchRate.Contains(catch_rate);
             }
@@ -366,6 +242,9 @@ namespace PKHeX.Core
 
                 case GameVersion.GP: return StaticGP;
                 case GameVersion.GE: return StaticGE;
+
+                case GameVersion.SW: return StaticSW;
+                case GameVersion.SH: return StaticSH;
 
                 default: return Enumerable.Empty<EncounterStatic>();
             }

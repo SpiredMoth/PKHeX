@@ -3,11 +3,51 @@ using System.Linq;
 
 namespace PKHeX.Core
 {
-    public abstract class Zukan
+    public abstract class ZukanBase
     {
-        protected SaveFile SAV { get; set; }
-        protected int PokeDex { get; set; }
-        protected int PokeDexLanguageFlags { get; set; }
+        protected readonly SaveFile SAV;
+        public readonly int PokeDex;
+
+        protected ZukanBase(SaveFile sav, int dex)
+        {
+            SAV = sav;
+            PokeDex = dex;
+        }
+
+        public int SeenCount => Enumerable.Range(1, SAV.MaxSpeciesID).Count(GetSeen);
+        public int CaughtCount => Enumerable.Range(1, SAV.MaxSpeciesID).Count(GetCaught);
+
+        public decimal PercentSeen => (decimal)SeenCount / SAV.MaxSpeciesID;
+        public decimal PercentCaught => (decimal)CaughtCount / SAV.MaxSpeciesID;
+
+        public abstract bool GetSeen(int species);
+        public abstract bool GetCaught(int species);
+
+        public abstract void SetDex(PKM pkm);
+
+        // Bulk Manipulation
+        public abstract void SeenNone();
+        public abstract void CaughtNone();
+
+        public abstract void SeenAll(bool shinyToo = false);
+        public abstract void CompleteDex(bool shinyToo = false);
+        public abstract void CaughtAll(bool shinyToo = false);
+        public abstract void SetAllSeen(bool value = true, bool shinyToo = false);
+
+        public abstract void SetDexEntryAll(int species, bool shinyToo = false);
+        public abstract void ClearDexEntryAll(int species);
+    }
+
+    public abstract class Zukan : ZukanBase
+    {
+        protected readonly int PokeDexLanguageFlags;
+
+        protected Zukan(SaveFile sav, int dex, int langflag) : base(sav, dex)
+        {
+            PokeDexLanguageFlags = langflag;
+            if (langflag > dex)
+                throw new ArgumentException(nameof(langflag));
+        }
 
         protected abstract int OFS_SEEN { get; }
         protected abstract int OFS_CAUGHT { get; }
@@ -16,25 +56,18 @@ namespace PKHeX.Core
         protected abstract int DexLangIDCount { get; }
         protected abstract int GetDexLangFlag(int lang);
 
-        public Func<int, int, int, int> DexFormIndexFetcher { get; protected set; }
-
         protected abstract bool GetSaneFormsToIterate(int species, out int formStart, out int formEnd, int formIn);
         protected virtual void SetSpindaDexData(PKM pkm, bool alreadySeen) { }
         protected abstract void SetAllDexFlagsLanguage(int bit, int lang, bool value = true);
         protected abstract void SetAllDexSeenFlags(int baseBit, int altform, int gender, bool isShiny, bool value = true);
 
-        protected bool GetFlag(int ofs, int bitIndex) => SAV.GetFlag(PokeDex + ofs + (bitIndex >> 3), bitIndex);
-        protected void SetFlag(int ofs, int bitIndex, bool value = true) => SAV.SetFlag(PokeDex + ofs + (bitIndex >> 3), bitIndex, value);
+        protected virtual bool GetFlag(int ofs, int bitIndex) => SAV.GetFlag(PokeDex + ofs + (bitIndex >> 3), bitIndex);
+        protected virtual void SetFlag(int ofs, int bitIndex, bool value = true) => SAV.SetFlag(PokeDex + ofs + (bitIndex >> 3), bitIndex, value);
 
-        public virtual bool GetCaught(int species) => GetFlag(OFS_CAUGHT, species - 1);
+        public override bool GetCaught(int species) => GetFlag(OFS_CAUGHT, species - 1);
         public virtual void SetCaught(int species, bool value = true) => SetFlag(OFS_CAUGHT, species - 1, value);
 
-        public int SeenCount => Enumerable.Range(1, SAV.MaxSpeciesID).Count(GetSeen);
-        public int CaughtCount => Enumerable.Range(1, SAV.MaxSpeciesID).Count(GetCaught);
-        public decimal PercentSeen => (decimal)SeenCount / SAV.MaxSpeciesID;
-        public decimal PercentCaught => (decimal)CaughtCount / SAV.MaxSpeciesID;
-
-        public virtual bool GetSeen(int species)
+        public override bool GetSeen(int species)
         {
             // check all 4 seen flags (gender/shiny)
             for (int i = 0; i < 4; i++)
@@ -68,7 +101,7 @@ namespace PKHeX.Core
                 if (GetFlag(OFS_SEEN + (i * BitSeenSize), species - 1))
                     return;
             }
-            var gender = SAV.Personal[species].RandomGender & 1;
+            var gender = SAV.Personal[species].RandomGender() & 1;
             SetAllDexSeenFlags(species - 1, 0, gender, false);
         }
 
@@ -79,9 +112,9 @@ namespace PKHeX.Core
                 SetFlag(OFS_SEEN + (i * BitSeenSize), species - 1, false);
         }
 
-        public virtual void SetDex(PKM pkm)
+        public override void SetDex(PKM pkm)
         {
-            if (PokeDex < 0 || SAV.Version == GameVersion.Invalid) // sanity
+            if (SAV.Version == GameVersion.Invalid) // sanity
                 return;
             if (pkm.Species == 0 || pkm.Species > SAV.MaxSpeciesID) // out of range
                 return;
@@ -89,7 +122,7 @@ namespace PKHeX.Core
                 return;
 
             int species = pkm.Species;
-            if (species == 327) // Spinda
+            if (species == (int)Species.Spinda)
                 SetSpindaDexData(pkm, GetSeen(species));
 
             int bit = pkm.Species - 1;
@@ -109,15 +142,29 @@ namespace PKHeX.Core
 
         protected void SetDexFlags(int baseBit, int formBit, int gender, int shiny, bool value = true)
         {
-            int shift = gender | (shiny << 1);
+            int shift = (gender & 1) | (shiny << 1);
 
             // Set the [Species/Gender/Shiny] Seen Flag
             SetFlag(OFS_SEEN + (shift * BitSeenSize), baseBit, value);
 
             // Set the Display flag if none are set
+            SetDisplayedFlag(baseBit, formBit, value, shift);
+        }
+
+        protected virtual void SetDisplayedFlag(int baseBit, int formBit, bool value, int shift)
+        {
+            var bit = formBit >= 0 ? formBit : baseBit;
+            if (!value)
+            {
+                SetDisplayed(bit, shift, false);
+                return;
+            }
+
             bool displayed = GetIsSpeciesFormAnyDisplayed(baseBit, formBit);
-            if (!displayed || !value)
-                SetFlag(OFS_SEEN + ((4 + shift) * BitSeenSize), formBit, value);
+            if (displayed)
+                return; // no need to set another bit
+
+            SetDisplayed(bit, shift, true);
         }
 
         private bool GetIsSpeciesFormAnyDisplayed(int baseBit, int formBit)
@@ -141,19 +188,67 @@ namespace PKHeX.Core
         }
 
         // Bulk Manipulation
+        public override void SeenNone() => SetDexEntriesAll(false, shinyToo: true);
+        public override void CaughtNone() => SetAllCaught(false, true);
+        public override void SeenAll(bool shinyToo = false) => SetAllSeen(shinyToo);
+        public override void CompleteDex(bool shinyToo = false) => SetDexEntriesAll(shinyToo: shinyToo);
 
-        public void SetDexEntriesAll(bool value = true, int max = -1)
+        public override void CaughtAll(bool shinyToo = false)
+        {
+            SetAllSeen(true, shinyToo);
+            SetAllCaught(true, shinyToo);
+        }
+
+        public void SetAllCaught(bool value = true, bool shinyToo = false)
+        {
+            for (int i = 0; i < SAV.MaxSpeciesID; i++)
+            {
+                int species = i + 1;
+                SetCaught(species, value); // Set the Owned Flag
+                SetSeenSingle(i + 1, value, shinyToo);
+            }
+        }
+
+        public override void SetAllSeen(bool value = true, bool shinyToo = false)
+        {
+            for (int i = 0; i < SAV.MaxSpeciesID; i++)
+                SetSeenSingle(i + 1, value, shinyToo);
+        }
+
+        public override void SetDexEntryAll(int species, bool shinyToo = false)
+        {
+            SetSeenSingle(species, true, shinyToo);
+            SetCaughtSingle(species);
+        }
+
+        public override void ClearDexEntryAll(int species)
+        {
+            SetSeenSingle(species, false);
+            SetCaughtSingle(species, false);
+        }
+
+        public void SetDexEntriesAll(bool value = true, int max = -1, bool shinyToo = false)
         {
             if (max <= 0)
                 max = SAV.MaxSpeciesID;
+
             for (int i = 1; i <= max; i++)
-                SetDexEntriesSingle(i, value);
+            {
+                SetSeenSingle(i, value, shinyToo);
+                SetCaughtSingle(i, value);
+            }
         }
 
-        public void SetDexEntriesSingle(int species, bool value = true)
+        public void SetCaughtSingle(int species, bool value = true)
         {
             SetCaught(species, value);
-            SetSeen(species, value);
+            int baseBit = species - 1;
+            SetAllDexFlagsLanguage(baseBit, value);
+        }
+
+        public void SetSeenSingle(int species, bool seen = true, bool shinyToo = false)
+        {
+            SetSeen(species, seen);
 
             var entry = SAV.Personal[species];
             int baseBit = species - 1;
@@ -162,16 +257,17 @@ namespace PKHeX.Core
             {
                 if (!entry.OnlyFemale)
                 {
-                    SetAllDexSeenFlags(baseBit, f, 0, false, value);
-                    SetAllDexSeenFlags(baseBit, f, 0, true, value);
+                    SetAllDexSeenFlags(baseBit, f, 0, false, seen);
+                    if (shinyToo)
+                        SetAllDexSeenFlags(baseBit, f, 0, true, seen);
                 }
                 if (!entry.OnlyMale && !entry.Genderless)
                 {
-                    SetAllDexSeenFlags(baseBit, f, 1, false, value);
-                    SetAllDexSeenFlags(baseBit, f, 1, true, value);
+                    SetAllDexSeenFlags(baseBit, f, 1, false, seen);
+                    if (shinyToo)
+                        SetAllDexSeenFlags(baseBit, f, 1, true, seen);
                 }
             }
-            SetAllDexFlagsLanguage(baseBit, value);
         }
 
         protected void SetAllDexFlagsLanguage(int bit, bool value = true)

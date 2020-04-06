@@ -34,13 +34,12 @@ namespace PKHeX.Core.Searching
 
         public static IEnumerable<PKM> FilterByGeneration(IEnumerable<PKM> res, int generation)
         {
-            switch (generation)
+            return generation switch
             {
-                case 1:
-                case 2: return res.Where(pk => pk.VC || pk.Format < 3);
-                default:
-                    return res.Where(pk => pk.GenNumber == generation);
-            }
+                1 => res.Where(pk => pk.VC || pk.Format < 3),
+                2 => res.Where(pk => pk.VC || pk.Format < 3),
+                _ => res.Where(pk => pk.GenNumber == generation)
+            };
         }
 
         public static IEnumerable<PKM> FilterByLVL(IEnumerable<PKM> res, SearchComparison option, int level)
@@ -48,54 +47,39 @@ namespace PKHeX.Core.Searching
             if (level > 100)
                 return res;
 
-            switch (option)
+            return option switch
             {
-                case SearchComparison.LessThanEquals:
-                    return res.Where(pk => pk.Stat_Level <= level);
-                case SearchComparison.Equals:
-                    return res.Where(pk => pk.Stat_Level == level);
-                case SearchComparison.GreaterThanEquals:
-                    return res.Where(pk => pk.Stat_Level >= level);
-
-                default:
-                    return res; // Any (Do nothing)
-            }
+                SearchComparison.LessThanEquals =>    res.Where(pk => pk.Stat_Level <= level),
+                SearchComparison.Equals =>            res.Where(pk => pk.Stat_Level == level),
+                SearchComparison.GreaterThanEquals => res.Where(pk => pk.Stat_Level >= level),
+                _ => res
+            };
         }
 
         public static IEnumerable<PKM> FilterByEVs(IEnumerable<PKM> res, int option)
         {
-            switch (option)
+            return option switch
             {
-                default: return res; // Any (Do nothing)
-                case 1: // None (0)
-                    return res.Where(pk => pk.EVTotal == 0);
-                case 2: // Some (127-0)
-                    return res.Where(pk => pk.EVTotal < 128);
-                case 3: // Half (128-507)
-                    return res.Where(pk => pk.EVTotal >= 128 && pk.EVTotal < 508);
-                case 4: // Full (508+)
-                    return res.Where(pk => pk.EVTotal >= 508);
-            }
+                1 => res.Where(pk => pk.EVTotal == 0), // None (0)
+                2 => res.Where(pk => pk.EVTotal < 128), // Some (127-0)
+                3 => res.Where(pk => pk.EVTotal >= 128 && pk.EVTotal < 508), // Half (128-507)
+                4 => res.Where(pk => pk.EVTotal >= 508), // Full (508+)
+                _ => res
+            };
         }
 
         public static IEnumerable<PKM> FilterByIVs(IEnumerable<PKM> res, int option)
         {
-            switch (option)
+            return option switch
             {
-                default: return res; // Do nothing
-                case 1: // <= 90
-                    return res.Where(pk => pk.IVTotal <= 90);
-                case 2: // 91-120
-                    return res.Where(pk => pk.IVTotal > 90 && pk.IVTotal <= 120);
-                case 3: // 121-150
-                    return res.Where(pk => pk.IVTotal > 120 && pk.IVTotal <= 150);
-                case 4: // 151-179
-                    return res.Where(pk => pk.IVTotal > 150 && pk.IVTotal < 180);
-                case 5: // 180+
-                    return res.Where(pk => pk.IVTotal >= 180);
-                case 6: // == 186
-                    return res.Where(pk => pk.IVTotal == 186);
-            }
+                1 => res.Where(pk => pk.IVTotal <= 90), // <= 90
+                2 => res.Where(pk => pk.IVTotal > 90 && pk.IVTotal <= 120), // 91-120
+                3 => res.Where(pk => pk.IVTotal > 120 && pk.IVTotal <= 150), // 121-150
+                4 => res.Where(pk => pk.IVTotal > 150 && pk.IVTotal < 180), // 151-179
+                5 => res.Where(pk => pk.IVTotal >= 180), // 180+
+                6 => res.Where(pk => pk.IVTotal == 186), // == 186
+                _ => res
+            };
         }
 
         public static IEnumerable<PKM> FilterByMoves(IEnumerable<PKM> res, IEnumerable<int> Moves)
@@ -121,40 +105,37 @@ namespace PKHeX.Core.Searching
 
         public static Func<PKM, string> GetCloneDetectMethod(CloneDetectionMethod Clones)
         {
-            switch (Clones)
+            return Clones switch
             {
-                default: return null;
-                case CloneDetectionMethod.HashDetails:
-                    return HashByDetails;
-                case CloneDetectionMethod.HashPID:
-                    return HashByPID;
-            }
+                CloneDetectionMethod.HashPID => HashByPID,
+                _ => HashByDetails,
+            };
         }
 
         public static string HashByDetails(PKM pk)
         {
-            switch (pk.Format)
+            return pk.Format switch
             {
-                case 1: return $"{pk.Species:000}{((PK1)pk).DV16:X4}";
-                case 2: return $"{pk.Species:000}{((PK2)pk).DV16:X4}";
-                default: return $"{pk.Species:000}{pk.PID:X8}{string.Join(" ", pk.IVs)}{pk.AltForm:00}";
-            }
+                1 => $"{pk.Species:000}{((PK1) pk).DV16:X4}",
+                2 => $"{pk.Species:000}{((PK2) pk).DV16:X4}",
+                _ => $"{pk.Species:000}{pk.PID:X8}{string.Join(" ", pk.IVs)}{pk.AltForm:00}"
+            };
         }
 
         public static string HashByPID(PKM pk)
         {
-            switch (pk.Format)
+            return pk.Format switch
             {
-                case 1: return $"{((PK1)pk).DV16:X4}";
-                case 2: return $"{((PK2)pk).DV16:X4}";
-                default: return $"{pk.PID:X8}";
-            }
+                1 => $"{((PK1) pk).DV16:X4}",
+                2 => $"{((PK2) pk).DV16:X4}",
+                _ => $"{pk.PID:X8}"
+            };
         }
 
         public static IEnumerable<PKM> GetClones(IEnumerable<PKM> res, CloneDetectionMethod type = CloneDetectionMethod.HashDetails)
         {
             var method = GetCloneDetectMethod(type);
-            return method == null ? res : GetClones(res, method);
+            return GetClones(res, method);
         }
 
         public static IEnumerable<PKM> GetClones(IEnumerable<PKM> res, Func<PKM, string> method)

@@ -63,7 +63,10 @@ namespace PKHeX.WinForms
                 catch { /* In use? Just return the internal resource. */ }
             }
 
-            return Util.GetStringList(file);
+            if (Util.IsStringListCached(file, out var result))
+                return result;
+            var txt = (string)Properties.Resources.ResourceManager.GetObject(file);
+            return Util.LoadStringList(file, txt);
         }
 
         private static IEnumerable<object> GetTranslatableControls(Control f)
@@ -101,8 +104,7 @@ namespace PKHeX.WinForms
         {
             foreach (Control child in control.Controls)
             {
-                var childOfT = child as T;
-                if (childOfT != null)
+                if (child is T childOfT)
                     yield return childOfT;
 
                 if (!child.HasChildren) continue;
@@ -200,7 +202,7 @@ namespace PKHeX.WinForms
         }
     }
 
-    public class TranslationContext
+    public sealed class TranslationContext
     {
         public bool AddNew { private get; set; }
         public bool RemoveUsedKeys { private get; set; }
@@ -210,8 +212,8 @@ namespace PKHeX.WinForms
         public TranslationContext(IEnumerable<string> content, char separator = Separator)
         {
             var entries = content.Select(z => z.Split(separator)).Where(z => z.Length == 2);
-            foreach (var r in entries.Where(z => !Translation.ContainsKey(z[0])))
-                Translation.Add(r[0], r[1]);
+            foreach (var kvp in entries.Where(z => !Translation.ContainsKey(z[0])))
+                Translation.Add(kvp[0], kvp[1]);
         }
 
         public string GetTranslatedText(string val, string fallback)

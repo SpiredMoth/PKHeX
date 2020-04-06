@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows.Forms;
 using PKHeX.Core;
+using PKHeX.Drawing;
 
 namespace PKHeX.WinForms
 {
@@ -17,9 +18,11 @@ namespace PKHeX.WinForms
             WinFormsUtil.TranslateInterface(this, Main.CurrentLanguage);
             SAV = (SAV5)(Origin = sav).Clone();
             ReadMain();
-            if (SAV.B2W2) ReadEntralink();
+            if (SAV is SAV5B2W2)
+                ReadEntralink();
             else TC_Misc.Controls.Remove(TAB_Entralink);
             LoadForest();
+            ReadSubway();
         }
 
         private void B_Cancel_Click(object sender, EventArgs e)
@@ -30,9 +33,11 @@ namespace PKHeX.WinForms
         private void B_Save_Click(object sender, EventArgs e)
         {
             SaveMain();
-            if (SAV.B2W2) SaveEntralink();
+            if (SAV is SAV5B2W2)
+                SaveEntralink();
             SaveForest();
-            Origin.SetData(SAV.Data, 0);
+            SaveSubway();
+            Origin.CopyChangesFrom(SAV);
             Close();
         }
 
@@ -62,6 +67,8 @@ namespace PKHeX.WinForms
             string[] FlyDestA = null;
             switch (SAV.Version)
             {
+                case GameVersion.B:
+                case GameVersion.W:
                 case GameVersion.BW:
                     ofsFly = 0x204B2;
                     FlyDestA = new[] {
@@ -77,6 +84,8 @@ namespace PKHeX.WinForms
                         10, 13, 12, 14
                     };
                     break;
+                case GameVersion.B2:
+                case GameVersion.W2:
                 case GameVersion.B2W2:
                     ofsFly = 0x20392;
                     FlyDestA = new[] {
@@ -105,22 +114,16 @@ namespace PKHeX.WinForms
             for (int i = 0; i < CLB_FlyDest.Items.Count; i++)
             {
                 if (FlyDestC[i] < 32)
-                    CLB_FlyDest.SetItemChecked(i, (valFly & (uint)1 << FlyDestC[i]) != 0);
+                    CLB_FlyDest.SetItemChecked(i, (valFly & 1u << FlyDestC[i]) != 0);
                 else
                     CLB_FlyDest.SetItemChecked(i, (SAV.Data[ofsFly + (FlyDestC[i] >> 3)] & 1 << (FlyDestC[i] & 7)) != 0);
             }
 
-            if (SAV.BW)
+            if (SAV is SAV5BW)
             {
                 GB_KeySystem.Visible = false;
                 // Roamer
                 cbr = new[] { CB_Roamer642, CB_Roamer641 };
-                List<ComboItem> getStates() => new List<ComboItem> {
-                    new ComboItem { Text = "Not roamed", Value = 0 },
-                    new ComboItem { Text = "Roaming", Value = 1 },
-                    new ComboItem { Text = "Defeated", Value = 2 },
-                    new ComboItem { Text = "Captured", Value = 3 }
-                };
                 // CurrentStat:ComboboxSource
                 // Not roamed: Not roamed/Defeated/Captured
                 //    Roaming: Roaming/Defeated/Captured
@@ -130,10 +133,9 @@ namespace PKHeX.WinForms
                 for (int i = 0; i < cbr.Length; i++)
                 {
                     int c = SAV.Data[ofsRoamer + 0x2E + i];
-
-                    var states = getStates();
+                    var states = GetStates();
                     if (states.All(z => z.Value != c))
-                        states.Add(new ComboItem {Text = $"Unknown (0x{c:X2})", Value = c});
+                        states.Add(new ComboItem($"Unknown (0x{c:X2})", c));
                     cbr[i].Items.Clear();
                     cbr[i].InitializeBinding();
                     cbr[i].DataSource = new BindingSource(states.Where(v => v.Value >= 2 || v.Value == c).ToList(), null);
@@ -145,7 +147,7 @@ namespace PKHeX.WinForms
                 bLibPass = BitConverter.ToUInt32(SAV.Data, ofsLibPass) == valLibPass;
                 CHK_LibertyPass.Checked = bLibPass;
             }
-            else if (SAV.B2W2)
+            else if (SAV is SAV5B2W2)
             {
                 GB_Roamer.Visible = CHK_LibertyPass.Visible = false;
                 // KeySystem
@@ -172,6 +174,17 @@ namespace PKHeX.WinForms
             }
         }
 
+        private static List<ComboItem> GetStates()
+        {
+            return new List<ComboItem>
+            {
+                new ComboItem("Not roamed", 0),
+                new ComboItem("Roaming", 1),
+                new ComboItem("Defeated", 2),
+                new ComboItem("Captured", 3),
+            };
+        }
+
         private void SaveMain()
         {
             uint valFly = BitConverter.ToUInt32(SAV.Data, ofsFly);
@@ -192,7 +205,7 @@ namespace PKHeX.WinForms
             }
             BitConverter.GetBytes(valFly).CopyTo(SAV.Data, ofsFly);
 
-            if (SAV.BW)
+            if (SAV is SAV5BW)
             {
                 // Roamer
                 for (int i = 0; i < cbr.Length; i++)
@@ -213,7 +226,7 @@ namespace PKHeX.WinForms
                 if (CHK_LibertyPass.Checked ^ bLibPass)
                     BitConverter.GetBytes(bLibPass ? 0 : valLibPass).CopyTo(SAV.Data, ofsLibPass);
             }
-            else if (SAV.B2W2)
+            else if (SAV is SAV5B2W2)
             {
                 // KeySystem
                 for (int i = 0; i < CLB_KeySystem.Items.Count; i++)
@@ -280,7 +293,6 @@ namespace PKHeX.WinForms
 
         private bool editing;
         private const int ofsFM = 0x25900;
-        private readonly ToolTip TipExpB = new ToolTip(), TipExpW = new ToolTip();
         private NumericUpDown[] nudaE, nudaF;
         private ComboBox[] cba;
         private ToolTip[] ta;
@@ -327,7 +339,7 @@ namespace PKHeX.WinForms
                 55, 56, 57, 62,
                 39, 40, 41, 42, 43, 44, 45, 59, 61, 63
             };
-            ComboItem[] PassPowerB = PassPowerA.Zip(PassPowerC, (f, s) => new ComboItem { Text = f, Value = s }).ToArray();
+            ComboItem[] PassPowerB = PassPowerA.Zip(PassPowerC, (f, s) => new ComboItem(f, s)).ToArray();
             cba = new[] { CB_PassPower1, CB_PassPower2, CB_PassPower3 };
             for (int i = 0; i < cba.Length; i++)
             {
@@ -460,14 +472,16 @@ namespace PKHeX.WinForms
         private void SetFMVal(int ofsB, int len, uint val)
         {
             int s = LB_FunfestMissions.SelectedIndex;
-            if (s < 0 || s >= FMUnlockConditions.Length) return;
+            if ((uint)s >= FMUnlockConditions.Length)
+                return;
             BitConverter.GetBytes((BitConverter.ToUInt32(SAV.Data, ofsFM + (s << 2)) & ~(~(uint)0 >> (32 - len) << ofsB)) | val << ofsB).CopyTo(SAV.Data, ofsFM + (s << 2));
         }
 
         private void LB_FunfestMissions_SelectedIndexChanged(object sender, EventArgs e)
         {
             int s = LB_FunfestMissions.SelectedIndex;
-            if (s < 0 || s >= FMUnlockConditions.Length) return;
+            if ((uint)s >= FMUnlockConditions.Length)
+                return;
             editing = true;
             bool FirstMissionCleared = (SAV.Data[0x2025E + (2438 >> 3)] & 1 << (2438 & 7)) != 0;
             L_FMUnlocked.Visible = s == 0 ? !FirstMissionCleared : FirstMissionCleared && FMUnlockConditions[s]?.All(v => (SAV.Data[0x2025E + (v >> 3)] & 1 << (v & 7)) != 0) != false;
@@ -557,7 +571,7 @@ namespace PKHeX.WinForms
             CHK_Area9.Checked = Forest.Unlock9thArea;
 
             var areas = AllSlots.Select(z => z.Area).Distinct()
-                .Select(z => new ComboItem {Text = z.ToString(), Value = (int) z}).ToList();
+                .Select(z => new ComboItem(z.ToString(), (int) z)).ToList();
 
             CB_Species.InitializeBinding();
             CB_Move.InitializeBinding();
@@ -646,7 +660,7 @@ namespace PKHeX.WinForms
 
         private void SetSprite(EntreeSlot slot)
         {
-            PB_SlotPreview.Image = SpriteUtil.GetSprite(slot.Species, slot.Form, slot.Gender, 0, false, false);
+            PB_SlotPreview.Image = SpriteUtil.GetSprite(slot.Species, slot.Form, slot.Gender, 0, 0, false, false);
         }
 
         private void SetGenders(EntreeSlot slot)
@@ -657,18 +671,19 @@ namespace PKHeX.WinForms
 
         private void B_RandForest_Click(object sender, EventArgs e)
         {
-            var source = (SAV.B2W2 ? Encounters5.B2W2_DreamWorld : Encounters5.BW_DreamWorld).ToList();
+            var source = (SAV is SAV5B2W2 ? Encounters5.B2W2_DreamWorld : Encounters5.BW_DreamWorld).ToList();
+            var rnd = Util.Rand;
             foreach (var s in AllSlots)
             {
-                int r = Util.Rand.Next(source.Count);
-                var slot = source[r];
+                int index = rnd.Next(source.Count);
+                var slot = source[index];
                 source.Remove(slot);
                 s.Species = slot.Species;
                 s.Form = slot.Form;
-                s.Move = slot.Moves?[Util.Rand.Next(slot.Moves.Length)] ?? 0;
-                s.Gender = slot.Gender == -1 ? PersonalTable.B2W2[slot.Species].RandomGender : slot.Gender;
+                s.Move = slot.Moves.Count > 0 ? slot.Moves[rnd.Next(slot.Moves.Count)] : 0;
+                s.Gender = slot.Gender == -1 ? PersonalTable.B2W2[slot.Species].RandomGender() : slot.Gender;
             }
-            ChangeArea(null, null); // refresh
+            ChangeArea(null, EventArgs.Empty); // refresh
             NUD_Unlocked.Value = 8;
             CHK_Area9.Checked = true;
             System.Media.SystemSounds.Asterisk.Play();
@@ -680,24 +695,133 @@ namespace PKHeX.WinForms
             var list = new List<ComboItem>();
             if (pi.Genderless)
             {
-                list.Add(new ComboItem{Text = "Genderless", Value = 2});
+                list.Add(new ComboItem("Genderless", 2));
                 return list;
             }
+
             if (!pi.OnlyFemale)
-                list.Add(new ComboItem { Text = "Male", Value = 0 });
+                list.Add(new ComboItem("Male", 0));
             if (!pi.OnlyMale)
-                list.Add(new ComboItem { Text = "Female", Value = 1 });
+                list.Add(new ComboItem("Female", 1));
             return list;
         }
 
         private void SetForms(EntreeSlot slot)
         {
-            bool hasForms = PersonalTable.B2W2[slot.Species].HasFormes || slot.Species == 414;
+            bool hasForms = PersonalTable.B2W2[slot.Species].HasFormes || slot.Species == (int)Species.Mothim;
             L_Form.Visible = CB_Form.Enabled = CB_Form.Visible = hasForms;
 
             CB_Form.InitializeBinding();
-            var list = PKX.GetFormList(slot.Species, GameInfo.Strings.types, GameInfo.Strings.forms, Main.GenderSymbols, SAV.Generation).ToList();
+            var list = FormConverter.GetFormList(slot.Species, GameInfo.Strings.types, GameInfo.Strings.forms, Main.GenderSymbols, SAV.Generation);
             CB_Form.DataSource = new BindingSource(list, null);
+        }
+
+        // Subway
+        private BattleSubway5 sw;
+
+        private void ReadSubway()
+        {
+            sw = SAV.BattleSubway;
+
+            // Figure out the Super Checks
+            var swSuperCheck = sw.SuperCheck;
+            if (swSuperCheck == 0x00)
+            {
+                CHK_SuperSingle.Checked = CHK_SuperDouble.Checked = CHK_SuperMulti.Checked = false;
+            }
+            else if (swSuperCheck >= 0x70) // 0x70 or anything else means all super enabled
+            {
+                CHK_SuperSingle.Checked = CHK_SuperDouble.Checked = CHK_SuperMulti.Checked = true;
+            }
+            else
+            {
+                if (swSuperCheck == 0x10 || swSuperCheck == 0x30 || swSuperCheck == 0x50)
+                {
+                    CHK_SuperSingle.Checked = true;
+                }
+                if (swSuperCheck == 0x20 || swSuperCheck == 0x30 || swSuperCheck == 0x60)
+                {
+                    CHK_SuperDouble.Checked = true;
+                }
+                if (swSuperCheck == 0x40 || swSuperCheck == 0x50 || swSuperCheck == 0x60)
+                {
+                    CHK_SuperMulti.Checked = true;
+                }
+            }
+
+            // Normal
+            // Single
+            NUD_SinglePast.Value = sw.SinglePast;
+            NUD_SingleRecord.Value = sw.SingleRecord;
+
+            // Double
+            NUD_DoublePast.Value = sw.DoublePast;
+            NUD_DoubleRecord.Value = sw.DoubleRecord;
+
+            // Multi NPC
+            NUD_MultiNpcPast.Value = sw.MultiNPCPast;
+            NUD_MultiNpcRecord.Value = sw.MultiNPCRecord;
+
+            // Multi Friends
+            NUD_MultiFriendsPast.Value = sw.MultiFriendsPast;
+            NUD_MultiFriendsRecord.Value = sw.MultiFriendsRecord;
+
+            // Super
+            // Single
+            NUD_SSinglePast.Value = sw.SuperSinglePast;
+            NUD_SSingleRecord.Value = sw.SuperSingleRecord;
+
+            // Double
+            NUD_SDoublePast.Value = sw.SuperDoublePast;
+            NUD_SDoubleRecord.Value = sw.SuperDoubleRecord;
+
+            // Multi NPC
+            NUD_SMultiNpcPast.Value = sw.SuperMultiNPCPast;
+            NUD_SMultiNpcRecord.Value = sw.SuperMultiNPCRecord;
+
+            // Multi Friends
+            NUD_SMultiFriendsPast.Value = sw.SuperMultiFriendsPast;
+            NUD_SMultiFriendsRecord.Value = sw.SuperMultiFriendsRecord;
+        }
+
+        private void SaveSubway()
+        {
+            // Save Super Checks
+            sw.SuperCheck = ((CHK_SuperSingle.Checked ? 0x10 : 0x00) + (CHK_SuperDouble.Checked ? 0x20 : 0x00) + (CHK_SuperMulti.Checked ? 0x40 : 0x00));
+
+            // Normal
+            // Single
+            sw.SinglePast = (int)NUD_SinglePast.Value;
+            sw.SingleRecord = (int)NUD_SingleRecord.Value;
+
+            // Double
+            sw.DoublePast = (int)NUD_DoublePast.Value;
+            sw.DoubleRecord = (int)NUD_DoubleRecord.Value;
+
+            // Multi NPC
+            sw.MultiNPCPast = (int)NUD_MultiNpcPast.Value;
+            sw.MultiNPCRecord = (int)NUD_MultiNpcRecord.Value;
+
+            // Multi Friends
+            sw.MultiFriendsPast = (int)NUD_MultiFriendsPast.Value;
+            sw.MultiFriendsRecord = (int)NUD_MultiFriendsRecord.Value;
+
+            // Super
+            // Single
+            sw.SuperSinglePast = (int)NUD_SSinglePast.Value;
+            sw.SuperSingleRecord = (int)NUD_SSingleRecord.Value;
+
+            // Double
+            sw.SuperDoublePast = (int)NUD_SDoublePast.Value;
+            sw.SuperDoubleRecord = (int)NUD_SDoubleRecord.Value;
+
+            // Multi NPC
+            sw.SuperMultiNPCPast = (int)NUD_SMultiNpcPast.Value;
+            sw.SuperMultiNPCRecord = (int)NUD_SMultiNpcRecord.Value;
+
+            // Multi Friends
+            sw.SuperMultiFriendsPast = (int)NUD_SMultiFriendsPast.Value;
+            sw.SuperMultiFriendsRecord = (int)NUD_SMultiFriendsRecord.Value;
         }
     }
 }

@@ -13,6 +13,10 @@
         /// <remarks><see cref="RNG.LCRNG"/></remarks>
         Method_2,
 
+        /// <summary> Method H3 </summary>
+        /// <remarks><see cref="RNG.LCRNG"/></remarks>
+        Method_3,
+
         /// <summary> Method H4 </summary>
         /// <remarks><see cref="RNG.LCRNG"/></remarks>
         Method_4,
@@ -24,6 +28,10 @@
         /// <summary> Method H2_Unown (FRLG) </summary>
         /// <remarks><see cref="RNG.LCRNG"/></remarks>
         Method_2_Unown,
+
+        /// <summary> Method H3_Unown (FRLG) </summary>
+        /// <remarks><see cref="RNG.LCRNG"/></remarks>
+        Method_3_Unown,
 
         /// <summary> Method H4_Unown (FRLG) </summary>
         /// <remarks><see cref="RNG.LCRNG"/></remarks>
@@ -58,7 +66,7 @@
         BACD_U_A,
 
         /// <summary>
-        /// Event Reversed Order PID restricted to 16bit Origin Seed, shiny
+        /// Event Reversed Order PID restricted to 8bit Origin Seed, shiny
         /// </summary>
         /// <remarks><see cref="RNG.LCRNG"/></remarks>
         BACD_R_S,
@@ -99,6 +107,13 @@
         /// </summary>
         /// <remarks><see cref="RNG.XDRNG"/></remarks>
         CXD,
+
+        // XDRNG Based
+        /// <summary>
+        /// Antishiny Rerolled <see cref="GameVersion.CXD"/> PIDIV
+        /// </summary>
+        /// <remarks><see cref="RNG.XDRNG"/></remarks>
+        CXDAnti,
 
         /// <summary>
         /// Standard <see cref="GameVersion.CXD"/> PIDIV which is immediately after the RNG calls that create the TID and SID.

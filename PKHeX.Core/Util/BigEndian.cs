@@ -10,7 +10,7 @@ namespace PKHeX.Core
             val |= data[offset + 0] << 24;
             val |= data[offset + 1] << 16;
             val |= data[offset + 2] << 8;
-            val |= data[offset + 3] << 0;
+            val |= data[offset + 3];
             return (uint)val;
         }
 
@@ -18,7 +18,7 @@ namespace PKHeX.Core
         {
             int val = 0;
             val |= data[offset + 0] << 8;
-            val |= data[offset + 1] << 0;
+            val |= data[offset + 1];
             return (ushort)val;
         }
 
@@ -28,7 +28,7 @@ namespace PKHeX.Core
             val |= data[offset + 0] << 24;
             val |= data[offset + 1] << 16;
             val |= data[offset + 2] << 8;
-            val |= data[offset + 3] << 0;
+            val |= data[offset + 3];
             return val;
         }
 
@@ -36,7 +36,7 @@ namespace PKHeX.Core
         {
             int val = 0;
             val |= data[offset + 0] << 8;
-            val |= data[offset + 1] << 0;
+            val |= data[offset + 1];
             return (short)val;
         }
 
@@ -62,12 +62,17 @@ namespace PKHeX.Core
 
         private static byte[] Invert(byte[] data)
         {
-            byte[] result = new byte[data.Length];
-            int o = 0;
-            int i = data.Length;
-            while (o != data.Length)
-                result[--i] = data[o++];
-            return result;
+            int i = 0;
+            int j = 0 + data.Length - 1;
+            while (i < j)
+            {
+                var temp = data[i];
+                data[i] = data[j];
+                data[j] = temp;
+                i++;
+                j--;
+            }
+            return data;
         }
 
         /// <summary>

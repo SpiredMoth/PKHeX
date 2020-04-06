@@ -14,13 +14,18 @@ namespace PKHeX.Core
         /// List of possible <see cref="GameVersion"/> values a <see cref="PKM.Version"/> can have.
         /// </summary>
         /// <remarks>Ordered roughly by most recent games first.</remarks>
-        public static readonly GameVersion[] GameVersions = ((GameVersion[])Enum.GetValues(typeof(GameVersion))).Where(z => z < RB && z > 0).Reverse().ToArray();
+        public static readonly IReadOnlyList<GameVersion> GameVersions = ((GameVersion[])Enum.GetValues(typeof(GameVersion))).Where(z => z < RB && z > 0).Reverse().ToArray();
 
         /// <summary>
         /// Indicates if the <see cref="GameVersion"/> value is a value used by the games or is an aggregate indicator.
         /// </summary>
         /// <param name="game">Game to check</param>
         public static bool IsValidSavedVersion(this GameVersion game) => 0 < game && game <= RB;
+
+        /// <summary>
+        /// Most recent game ID utilized by official games.
+        /// </summary>
+        public const GameVersion HighestGameID = RB - 1;
 
         /// <summary>Determines the Version Grouping of an input Version ID</summary>
         /// <param name="Version">Version of which to determine the group</param>
@@ -35,12 +40,13 @@ namespace PKHeX.Core
                 case GO:
                     return GO;
 
-                // Gen1
-                case RBY: case RD: case BU: case YW: case GN:
-                    return RBY;
+                // VC Transfers
+                case RD: case BU: case YW: case GN:
+                case GD: case SV: case C:
+                    return USUM;
 
-                // Gen2
-                case GS: case GD: case SV: case C:
+                // Gen2 -- PK2
+                case GS: case GSC:
                     return GSC;
 
                 // Gen3
@@ -79,6 +85,10 @@ namespace PKHeX.Core
                 case GP: case GE:
                     return GG;
 
+                // Gen8
+                case SW: case SH:
+                    return SWSH;
+
                 default:
                     return Invalid;
             }
@@ -91,18 +101,18 @@ namespace PKHeX.Core
         /// <returns>Version ID from requested generation. If none, return <see cref="Invalid"/>.</returns>
         public static GameVersion GetVersion(int generation)
         {
-            switch (generation)
+            return generation switch
             {
-                case 1: return RBY;
-                case 2: return C;
-                case 3: return E;
-                case 4: return SS;
-                case 5: return W2;
-                case 6: return AS;
-                case 7: return UM;
-                default:
-                    return Invalid;
-            }
+                1 => RBY,
+                2 => C,
+                3 => E,
+                4 => SS,
+                5 => W2,
+                6 => AS,
+                7 => UM,
+                8 => SH,
+                _ => Invalid
+            };
         }
 
         /// <summary>
@@ -119,6 +129,7 @@ namespace PKHeX.Core
             if (Gen5.Contains(game)) return 5;
             if (Gen6.Contains(game)) return 6;
             if (Gen7.Contains(game)) return 7;
+            if (Gen8.Contains(game)) return 8;
             return -1;
         }
 
@@ -145,6 +156,7 @@ namespace PKHeX.Core
                     return Legal.MaxSpeciesID_7b;
                 return Legal.MaxSpeciesID_7_USUM;
             }
+            if (Gen8.Contains(game)) return Legal.MaxSpeciesID_8;
             return -1;
         }
 
@@ -224,6 +236,11 @@ namespace PKHeX.Core
                     return g2 == GP || g2 == GE || g2 == GO;
                 case Gen7:
                     return SM.Contains(g2) || USUM.Contains(g2) || GG.Contains(g2);
+
+                case SWSH:
+                    return g2 == SW || g2 == SH;
+                case Gen8:
+                    return SWSH.Contains(g2);
 
                 default: return false;
             }
