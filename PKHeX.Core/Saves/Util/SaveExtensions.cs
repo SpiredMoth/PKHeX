@@ -1,150 +1,217 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 
 using static PKHeX.Core.MessageStrings;
 
-namespace PKHeX.Core
+namespace PKHeX.Core;
+
+/// <summary>
+/// Extension methods for <see cref="SaveFile"/> syntax sugar.
+/// </summary>
+public static class SaveExtensions
 {
-    public static class SaveExtensions
+    extension(SaveFile sav)
     {
         /// <summary>
-        /// Checks if the <see cref="PKM"/> is compatible with the input <see cref="SaveFile"/>, and makes any necessary modifications to force compatibility.
+        /// Evaluates a <see cref="PKM"/> file for compatibility to the <see cref="SaveFile"/>.
         /// </summary>
-        /// <remarks>Should only be used when forcing a backwards conversion to sanitize the PKM fields to the target format.
-        /// If the PKM is compatible, some properties may be forced to sanitized values.</remarks>
-        /// <param name="SAV">Save File target that the PKM will be injected.</param>
-        /// <param name="pk">PKM input that is to be injected into the Save File.</param>
-        /// <returns>Indication whether or not the PKM is compatible.</returns>
-        public static bool IsPKMCompatibleWithModifications(this SaveFile SAV, PKM pk) => PKMConverter.IsPKMCompatibleWithModifications(pk, SAV);
-
-        /// <summary>
-        /// Sets the details of a path to a <see cref="SaveFile"/> object.
-        /// </summary>
-        /// <param name="sav">Save File to set path details to.</param>
-        /// <param name="path">Full Path of the file</param>
-        public static void SetFileInfo(this SaveFile sav, string path)
+        /// <param name="pk"><see cref="PKM"/> that is being tested for compatibility.</param>
+        /// <param name="language">Language to use for error messages.</param>
+        public IReadOnlyList<string> EvaluateCompatibility(PKM pk, string language = GameLanguage.DefaultLanguage)
         {
-            if (!sav.Exportable) // Blank save file
-            {
-                sav.FileFolder = sav.FilePath = null;
-                sav.FileName = "Blank Save File";
-                return;
-            }
-
-            sav.FilePath = path;
-            sav.FileFolder = Path.GetDirectoryName(path);
-            sav.FileName = string.Empty;
-            var bakName = Util.CleanFileName(sav.BAKName);
-            sav.FileName = Path.GetFileName(path);
-            if (sav.FileName?.EndsWith(bakName) == true)
-                sav.FileName = sav.FileName.Substring(0, sav.FileName.Length - bakName.Length);
+            var legality = LegalityCheckLocalization.Get(language);
+            return sav.GetSaveFileErrata(pk, GameInfo.Strings, legality);
         }
 
         /// <summary>
         /// Checks a <see cref="PKM"/> file for compatibility to the <see cref="SaveFile"/>.
         /// </summary>
-        /// <param name="SAV"><see cref="SaveFile"/> that is being checked.</param>
-        /// <param name="pkm"><see cref="PKM"/> that is being tested for compatibility.</param>
-        /// <returns></returns>
-        public static IReadOnlyList<string> IsPKMCompatible(this SaveFile SAV, PKM pkm)
+        /// <param name="pk"><see cref="PKM"/> that is being tested for compatibility.</param>
+        public bool IsCompatiblePKM(PKM pk)
         {
-            IBasicStrings strings = GameInfo.Strings;
-            return SAV.GetSaveFileErrata(pkm, strings);
+            if (sav.PKMType != pk.GetType())
+                return false;
+
+            if (sav is ILangDeviantSave il && !EntityConverter.IsCompatibleGB(pk, il.Japanese, pk.Japanese))
+                return false;
+
+            return true;
         }
 
-        private static IReadOnlyList<string> GetSaveFileErrata(this SaveFile SAV, PKM pkm, IBasicStrings strings)
+        private List<string> GetSaveFileErrata(PKM pk, IBasicStrings strings, LegalityCheckLocalization legality)
         {
-            var errata = new List<string>();
-            if (SAV.Generation > 1)
+            var errata = new List<string>(0); // usually nothing wrong, so start with empty list
+            ushort held = (ushort)pk.HeldItem;
+            if (sav.Generation > 1 && held != 0)
             {
-                ushort held = (ushort)pkm.HeldItem;
-                var itemstr = GameInfo.Strings.GetItemStrings(pkm.Format, (GameVersion) pkm.Version);
-                if (held > itemstr.Count)
-                    errata.Add($"{MsgIndexItemRange} {held}");
-                else if (held > SAV.MaxItemID)
-                    errata.Add($"{MsgIndexItemGame} {itemstr[held]}");
-                else if (!pkm.CanHoldItem(SAV.HeldItems))
-                    errata.Add($"{MsgIndexItemHeld} {itemstr[held]}");
+                string? msg = null;
+                if (held > sav.MaxItemID)
+                    msg = MsgIndexItemGame;
+                else if (!pk.CanHoldItem(sav.HeldItems))
+                    msg = MsgIndexItemHeld;
+                if (msg is not null)
+                {
+                    var itemstr = GameInfo.Strings.GetItemStrings(pk.Context, pk.Version);
+                    errata.Add($"{msg} {(held >= itemstr.Length ? held.ToString() : itemstr[held])}");
+                }
             }
 
-            if (pkm.Species > strings.Species.Count)
-                errata.Add($"{MsgIndexSpeciesRange} {pkm.Species}");
-            else if (SAV.MaxSpeciesID < pkm.Species)
-                errata.Add($"{MsgIndexSpeciesGame} {strings.Species[pkm.Species]}");
+            if (pk.Species >= strings.Species.Count)
+                errata.Add($"{MsgIndexSpeciesRange} {pk.Species}");
+            else if (sav.MaxSpeciesID < pk.Species)
+                errata.Add($"{MsgIndexSpeciesGame} {strings.Species[pk.Species]}");
 
-            if (!SAV.Personal[pkm.Species].IsFormeWithinRange(pkm.AltForm) && !FormConverter.IsValidOutOfBoundsForme(pkm.Species, pkm.AltForm, pkm.GenNumber))
-                errata.Add(string.Format(LegalityCheckStrings.LFormInvalidRange, Math.Max(0, SAV.Personal[pkm.Species].FormeCount - 1), pkm.AltForm));
+            if (!sav.Personal[pk.Species].IsFormWithinRange(pk.Form) && !FormInfo.IsValidOutOfBoundsForm(pk.Species, pk.Form, pk.Generation))
+                errata.Add(string.Format(legality.FormInvalidRangeLEQ_0F, Math.Max(0, sav.Personal[pk.Species].FormCount - 1), pk.Form));
 
-            if (pkm.Moves.Any(m => m > strings.Move.Count))
-                errata.Add($"{MsgIndexMoveRange} {string.Join(", ", pkm.Moves.Where(m => m > strings.Move.Count).Select(m => m.ToString()))}");
-            else if (pkm.Moves.Any(m => m > SAV.MaxMoveID))
-                errata.Add($"{MsgIndexMoveGame} {string.Join(", ", pkm.Moves.Where(m => m > SAV.MaxMoveID).Select(m => strings.Move[m]))}");
+            var movestr = strings.Move;
+            for (int i = 0; i < 4; i++)
+            {
+                var move = pk.GetMove(i);
+                if ((uint)move >= movestr.Count)
+                    errata.Add($"{MsgIndexMoveRange} {move}");
+                else if (move > sav.MaxMoveID)
+                    errata.Add($"{MsgIndexMoveGame} {movestr[move]}");
+            }
 
-            if (pkm.Ability > strings.Ability.Count)
-                errata.Add($"{MsgIndexAbilityRange} {pkm.Ability}");
-            else if (pkm.Ability > SAV.MaxAbilityID)
-                errata.Add($"{MsgIndexAbilityGame} {strings.Ability[pkm.Ability]}");
+            if (pk.Ability > strings.Ability.Count)
+                errata.Add($"{MsgIndexAbilityRange} {pk.Ability}");
+            else if (pk.Ability > sav.MaxAbilityID)
+                errata.Add($"{MsgIndexAbilityGame} {strings.Ability[pk.Ability]}");
 
             return errata;
         }
 
-        public static int ImportPKMs(this SaveFile SAV, IEnumerable<PKM> compat, int boxStart, bool? noSetb)
+        /// <summary>
+        /// Imports compatible <see cref="PKM"/> data to the <see cref="sav"/>, starting at the provided box.
+        /// </summary>
+        /// <param name="compat">Compatible <see cref="PKM"/> data that can be set to the <see cref="sav"/> without conversion.</param>
+        /// <param name="overwrite">Overwrite existing full slots. If true, will only overwrite empty slots.</param>
+        /// <param name="boxStart">First box to start loading to. All prior boxes are not modified.</param>
+        /// <param name="settings">Bypass option to not modify <see cref="PKM"/> properties when setting to Save File.</param>
+        /// <returns>Count of injected <see cref="PKM"/>.</returns>
+        public int ImportPKMs(IEnumerable<PKM> compat, bool overwrite = false, int boxStart = 0, EntityImportSettings settings = default)
         {
-            int startCount = boxStart * SAV.BoxSlotCount;
-            int maxCount = SAV.BoxCount * SAV.BoxSlotCount;
-            int i = startCount;
-            int getbox() => i / SAV.BoxSlotCount;
-            int getslot() => i % SAV.BoxSlotCount;
+            int startCount = boxStart * sav.BoxSlotCount;
+            int maxCount = sav.SlotCount;
+            int index = startCount;
+            int nonOverwriteImport = 0;
 
             foreach (var pk in compat)
             {
-                int box = getbox();
-                int slot = getslot();
-                while (SAV.IsSlotOverwriteProtected(box, slot))
+                if (overwrite)
                 {
-                    ++i;
-                    box = getbox();
-                    slot = getslot();
+                    while (sav.IsBoxSlotOverwriteProtected(index))
+                        ++index;
+
+                    // The above will return false if out of range. We need to double-check.
+                    if (index >= maxCount) // Boxes full!
+                        break;
+
+                    sav.SetBoxSlotAtIndex(pk, index, settings);
+                }
+                else
+                {
+                    index = sav.NextOpenBoxSlot(index-1);
+                    if (index < 0) // Boxes full!
+                        break;
+
+                    sav.SetBoxSlotAtIndex(pk, index, settings);
+                    nonOverwriteImport++;
                 }
 
-                int offset = SAV.GetBoxOffset(box) + (slot * SAV.SIZE_STORED);
-                SAV.SetStoredSlot(pk, offset, noSetb);
-
-                if (++i == maxCount) // Boxes full!
+                if (++index == maxCount) // Boxes full!
                     break;
             }
-            i -= startCount; // actual imported count
-            return i;
+            return overwrite ? index - startCount : nonOverwriteImport; // actual imported count
         }
 
-        public static IEnumerable<PKM> GetCompatible(this SaveFile SAV, IEnumerable<PKM> pks)
+        public IEnumerable<PKM> GetCompatible(IEnumerable<PKM> pks)
         {
-            var savtype = SAV.PKMType;
+            var savtype = sav.PKMType;
+
             foreach (var temp in pks)
             {
-                var pk = PKMConverter.ConvertToType(temp, savtype, out string c);
-                if (pk == null)
+                var pk = EntityConverter.ConvertToType(temp, savtype, out var c);
+                if (pk is null)
                 {
-                    Debug.WriteLine(c);
+                    Debug.WriteLine(c.GetDisplayString(temp, savtype));
                     continue;
                 }
 
-                if (PKMConverter.IsIncompatibleGB(pk.Format, SAV.Japanese, pk.Japanese))
+                if (sav is ILangDeviantSave il && !EntityConverter.IsCompatibleGB(temp, il.Japanese, pk.Japanese))
                 {
-                    c = PKMConverter.GetIncompatibleGBMessage(pk, SAV.Japanese);
-                    Debug.WriteLine(c);
+                    var str = EntityConverterResult.IncompatibleLanguageGB.GetIncompatibleGBMessage(pk, il.Japanese);
+                    Debug.WriteLine(str);
                     continue;
                 }
 
-                var compat = SAV.IsPKMCompatible(pk);
+                var compat = sav.EvaluateCompatibility(pk);
                 if (compat.Count > 0)
                     continue;
 
                 yield return pk;
             }
+        }
+
+        /// <summary>
+        /// Gets a compatible <see cref="PKM"/> for editing with a new <see cref="SaveFile"/>.
+        /// </summary>
+        /// <param name="pk">Current Pokémon being edited</param>
+        /// <returns>Current Pokémon, assuming conversion is possible. If conversion is not possible, a blank <see cref="PKM"/> will be obtained from the <see cref="sav"/>.</returns>
+        public PKM GetCompatiblePKM(PKM pk)
+        {
+            if (pk.Format >= 3 || sav.Generation >= 7)
+                return EntityConverter.ConvertToType(pk, sav.PKMType, out _) ?? sav.BlankPKM;
+            // Gen1/2 compatibility check
+            if (pk.Japanese != ((ILangDeviantSave)sav).Japanese)
+                return sav.BlankPKM;
+            if (sav is SAV2 s2 && s2.Korean != pk.Korean)
+                return sav.BlankPKM;
+            return EntityConverter.ConvertToType(pk, sav.PKMType, out _) ?? sav.BlankPKM;
+        }
+
+        /// <summary>
+        /// Gets a blank file for the save file. Adapts it to the save file.
+        /// </summary>
+        /// <returns>Template if it exists, or a blank <see cref="PKM"/> from the <see cref="sav"/></returns>
+        private PKM LoadTemplateInternal()
+        {
+            var pk = sav.BlankPKM;
+            EntityTemplates.TemplateFields(pk, sav);
+            return pk;
+        }
+
+        /// <summary>
+        /// Gets a blank file for the save file. If the template path exists, a template load will be attempted.
+        /// </summary>
+        /// <param name="templatePath">Path to look for a template in</param>
+        /// <returns>Template if it exists, or a blank <see cref="PKM"/> from the <see cref="sav"/></returns>
+        public PKM LoadTemplate(string? templatePath = null)
+        {
+            if (!Directory.Exists(templatePath))
+                return Fallback(sav);
+
+            var di = new DirectoryInfo(templatePath);
+            string path = Path.Combine(templatePath, $"{di.Name}.{sav.PKMType.Name.ToLowerInvariant()}");
+
+            if (!File.Exists(path))
+                return Fallback(sav);
+            var fi = new FileInfo(path);
+            if (!EntityDetection.IsSizePlausible(fi.Length))
+                return Fallback(sav);
+
+            var data = File.ReadAllBytes(path);
+            var prefer = EntityFileExtension.GetContextFromExtension(fi.Extension, sav.Context);
+            var pk = EntityFormat.GetFromBytes(data, prefer);
+            if (pk?.Species is not > 0)
+                return Fallback(sav);
+
+            return EntityConverter.ConvertToType(pk, sav.BlankPKM.GetType(), out _) ?? Fallback(sav);
+
+            static PKM Fallback(SaveFile sav) => sav.LoadTemplateInternal();
         }
     }
 }

@@ -1,26 +1,38 @@
-﻿namespace PKHeX.Core
+using System;
+
+namespace PKHeX.Core;
+
+public static class BattleVideo
 {
-    public abstract class BattleVideo
+    public static IBattleVideo? GetVariantBattleVideo(Memory<byte> data)
     {
-        public abstract PKM[] BattlePKMs { get; }
-        public abstract int Generation { get; }
+        ReadOnlySpan<byte> span = data.Span;
 
-        public static BattleVideo GetVariantBattleVideo(byte[] data)
-        {
-            if (BV6.IsValid(data))
-                return new BV6(data);
-            if (BV7.IsValid(data))
-                return new BV7(data);
-            return null;
-        }
+        if (BattleVideo7.IsValid(span))
+            return new BattleVideo7(data);
+        if (BattleVideo6.IsValid(span))
+            return new BattleVideo6(data);
+        if (BattleVideo5.IsValid(span))
+            return new BattleVideo5(data);
+        if (BattleVideo4.IsValid(span))
+            return new BattleVideo4(data);
+        if (BattleVideo3.IsValid(span))
+            return new BattleVideo3(data);
+        return null;
+    }
 
-        public static bool IsValid(byte[] data)
-        {
-            if (BV6.IsValid(data))
-                return true;
-            if (BV7.IsValid(data))
-                return true;
-            return false;
-        }
+    public static bool IsValid(ReadOnlySpan<byte> data)
+    {
+        if (BattleVideo7.IsValid(data))
+            return true;
+        if (BattleVideo6.IsValid(data))
+            return true;
+        if (BattleVideo5.IsValid(data))
+            return true;
+        if (BattleVideo4.IsValid(data))
+            return true;
+        if (BattleVideo3.IsValid(data))
+            return true;
+        return false;
     }
 }

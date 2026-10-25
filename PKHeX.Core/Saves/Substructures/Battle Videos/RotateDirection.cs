@@ -1,13 +1,8 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
+﻿namespace PKHeX.Core;
 
-namespace PKHeX.Core
+public enum RotateDirection
 {
-    public enum RotateDirection
-    {
-        None,
-        Right,
-        Left,
-    }
+    None,
+    Right,
+    Left,
 }

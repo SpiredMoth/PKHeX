@@ -1,25 +1,17 @@
-﻿namespace PKHeX.Core
+namespace PKHeX.Core;
+
+/// <summary>
+/// Represents a known value for a <see cref="EventWork{T}"/> of type <see cref="int"/>.
+/// </summary>
+public sealed class EventWorkVal(string Text, int Value)
 {
-    /// <summary>
-    /// Represents a known value for a <see cref="EventWork{T}"/> of type <see cref="int"/>.
-    /// </summary>
-    public class EventWorkVal
+    public readonly string Text = Text;
+    public readonly int Value = Value;
+
+    public readonly bool Custom;
+
+    public EventWorkVal() : this(nameof(Custom), int.MinValue)
     {
-        public readonly bool Custom;
-        public readonly string Text;
-        public readonly int Value;
-
-        public EventWorkVal()
-        {
-            Custom = true;
-            Text = nameof(Custom);
-            Value = int.MinValue;
-        }
-
-        public EventWorkVal(string text, int val)
-        {
-            Text = text;
-            Value = val;
-        }
+        Custom = true;
     }
 }

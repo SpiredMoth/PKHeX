@@ -1,90 +1,101 @@
-﻿using System;
+using System;
 using System.Windows.Forms;
 using PKHeX.Core;
 
-namespace PKHeX.WinForms
+namespace PKHeX.WinForms;
+
+public partial class SAV_Apricorn : Form
 {
-    public partial class SAV_Apricorn : Form
+    public SAV_Apricorn(SAV4HGSS sav)
     {
-        public SAV_Apricorn(SaveFile sav)
+        InitializeComponent();
+        WinFormsUtil.TranslateInterface(this, Main.CurrentLanguage);
+        SAV = (SAV4HGSS)(Origin = sav).Clone();
+
+        Setup();
+    }
+
+    private readonly SAV4HGSS Origin;
+    private readonly SAV4HGSS SAV;
+    private const int Count = 7;
+    private const int ItemNameBase = 485; // Red Apricorn
+
+    private static ReadOnlySpan<byte> ItemNameOffset =>
+    [
+        0, // 485: Red
+        2, // 487: Yellow - out of order
+        1, // 486: Blue - out of order
+        3, // 488: Green
+        4, // 489: Pink
+        5, // 490: White
+        6, // 491: Black
+    ];
+
+    private void Setup()
+    {
+        dgv.Rows.Clear();
+        dgv.Columns.Clear();
+
+        DataGridViewColumn dgvApricorn = new DataGridViewTextBoxColumn();
         {
-            InitializeComponent();
-            WinFormsUtil.TranslateInterface(this, Main.CurrentLanguage);
-            SAV = (SAV4)(Origin = sav).Clone();
-
-            Setup();
+            dgvApricorn.HeaderText = "Slot";
+            dgvApricorn.DisplayIndex = 0;
+            dgvApricorn.Width = 135;
+            dgvApricorn.ReadOnly = true;
+            dgvApricorn.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
         }
-
-        private readonly SaveFile Origin;
-        private readonly SAV4 SAV;
-        private const int Count = 7;
-        private static readonly string[] itemlist = {"Red", "Yellow", "Blue", "Green", "Pink", "White", "Black"};
-
-        private void Setup()
+        DataGridViewTextBoxColumn dgvCount = new()
         {
-            dgv.Rows.Clear();
-            dgv.Columns.Clear();
+            DisplayIndex = 1,
+            Width = 45,
+        };
+        dgv.Columns.Add(dgvApricorn);
+        dgv.Columns.Add(dgvCount);
 
-            DataGridViewColumn dgvApricorn = new DataGridViewTextBoxColumn();
-            {
-                dgvApricorn.HeaderText = "Slot";
-                dgvApricorn.DisplayIndex = 0;
-                dgvApricorn.Width = 135;
-                dgvApricorn.ReadOnly = true;
-                dgvApricorn.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
-            }
-            DataGridViewComboBoxColumn dgvCount = new DataGridViewComboBoxColumn
-            {
-                DisplayStyle = DataGridViewComboBoxDisplayStyle.Nothing,
-                DisplayIndex = 0,
-                Width = 135,
-                FlatStyle = FlatStyle.Flat,
-                ValueType = typeof(int)
-            };
-            {
-                for (var i = 0; i <= 99; i++)
-                    dgvCount.Items.Add(i);
-
-                dgvCount.DisplayIndex = 1;
-                dgvCount.Width = 45;
-                dgvCount.FlatStyle = FlatStyle.Flat;
-            }
-            dgv.Columns.Add(dgvApricorn);
-            dgv.Columns.Add(dgvCount);
-
-            dgv.Rows.Add(Count);
-            for (int i = 0; i < Count; i++)
-            {
-                dgv.Rows[i].Cells[0].Value = itemlist[i];
-                dgv.Rows[i].Cells[1].Value = SAV.GetApricornCount(i);
-            }
-        }
-
-        private void B_Cancel_Click(object sender, EventArgs e)
+        dgv.Rows.Add(Count);
+        var itemNames = GameInfo.Strings.itemlist;
+        for (int i = 0; i < Count; i++)
         {
-            Close();
+            var itemId = ItemNameBase + ItemNameOffset[i];
+            dgv.Rows[i].Cells[0].Value = itemNames[itemId];
         }
+        LoadCount();
+    }
 
-        private void B_All_Click(object sender, EventArgs e)
-        {
-            for (int i = 0; i < Count; i++)
-                SAV.SetApricornCount(i, 99);
-            Setup();
-        }
+    private void LoadCount()
+    {
+        for (int i = 0; i < Count; i++)
+            dgv.Rows[i].Cells[1].Value = SAV.GetApricornCount(i).ToString();
+    }
 
-        private void B_None_Click(object sender, EventArgs e)
-        {
-            for (int i = 0; i < Count; i++)
-                SAV.SetApricornCount(i, 0);
-            Setup();
-        }
+    private void B_Cancel_Click(object sender, EventArgs e)
+    {
+        Close();
+    }
 
-        private void B_Save_Click(object sender, EventArgs e)
+    private void B_All_Click(object sender, EventArgs e)
+    {
+        for (int i = 0; i < Count; i++)
+            SAV.SetApricornCount(i, 99);
+        LoadCount();
+    }
+
+    private void B_None_Click(object sender, EventArgs e)
+    {
+        for (int i = 0; i < Count; i++)
+            SAV.SetApricornCount(i, 0);
+        LoadCount();
+    }
+
+    private void B_Save_Click(object sender, EventArgs e)
+    {
+        for (int i = 0; i < Count; i++)
         {
-            for (int i = 0; i < Count; i++)
-                SAV.SetApricornCount(i, (int)dgv.Rows[i].Cells[1].Value);
-            Origin.SetData(SAV.Data, 0);
-            Close();
+            var cells = dgv.Rows[i].Cells;
+            var count = int.TryParse(cells[1].Value?.ToString() ?? "0", out var val) ? val : 0;
+            SAV.SetApricornCount(i, Math.Min(byte.MaxValue, count));
         }
+        Origin.CopyChangesFrom(SAV);
+        Close();
     }
 }

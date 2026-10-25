@@ -1,513 +1,504 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.IO;
 using System.Linq;
 using System.Windows.Forms;
 using PKHeX.Core;
+using PKHeX.WinForms.Controls;
 using static PKHeX.Core.MessageStrings;
 
-namespace PKHeX.WinForms
+namespace PKHeX.WinForms;
+
+public sealed partial class SAV_EventFlags : Form
 {
-    public sealed partial class SAV_EventFlags : Form
+    private readonly EventWorkspace<IEventFlag37, ushort> Editor;
+    private readonly Dictionary<int, NumericUpDown> WorkDict = [];
+    private readonly Dictionary<int, (DataGridView Grid, int RowIndex)> FlagDict = [];
+
+    private bool editing;
+
+    public SAV_EventFlags(IEventFlag37 sav, GameVersion version)
     {
-        private readonly SaveFile Origin;
-        private readonly SaveFile SAV;
+        InitializeComponent();
+        WinFormsUtil.TranslateInterface(this, Main.CurrentLanguage);
 
-        public SAV_EventFlags(SaveFile sav)
+        var editor = Editor = new EventWorkspace<IEventFlag37, ushort>(sav, version);
+        AllowDrop = true;
+        DragEnter += Main_DragEnter;
+        DragDrop += Main_DragDrop;
+        tabControl1.SelectedTab = GB_Research; // hack to get the first tab to render in dark mode correctly
+
+        editing = true;
+        CB_Stats.Items.Clear();
+        for (int i = 0; i < editor.Values.Length; i++)
+            CB_Stats.Items.Add(i.ToString());
+
+        AddFlagList(editor.Labels, editor.Flags);
+        AddConstList(editor.Labels, editor.Values);
+
+        if (Application.IsDarkModeEnabled)
         {
-            InitializeComponent();
-            WinFormsUtil.TranslateInterface(this, Main.CurrentLanguage);
-            SAV = (Origin = sav).Clone();
-
-            DragEnter += Main_DragEnter;
-            DragDrop += Main_DragDrop;
-
-            flags = SAV.EventFlags;
-            Constants = SAV.EventConsts;
-
-            CB_Stats.Items.Clear();
-            for (int i = 0; i < Constants.Length; i++)
-                CB_Stats.Items.Add(i.ToString());
-
-            TLP_Flags.SuspendLayout();
-            TLP_Const.SuspendLayout();
-            TLP_Flags.Scroll += WinFormsUtil.PanelScroll;
-            TLP_Const.Scroll += WinFormsUtil.PanelScroll;
-            TLP_Flags.Controls.Clear();
-            TLP_Const.Controls.Clear();
-            AddFlagList(GetStringList("flags"));
-            AddConstList(GetStringList("const"));
-
-            TLP_Flags.ResumeLayout();
-            TLP_Const.ResumeLayout();
-
-            WinFormsUtil.TranslateInterface(this, Main.CurrentLanguage);
-
-            Text = $"{Text} ({gamePrefix.ToUpper()})";
-
-            if (CB_Stats.Items.Count > 0)
-            {
-                CB_Stats.SelectedIndex = 0;
-            }
-            else
-            {
-                L_Stats.Visible = CB_Stats.Visible = MT_Stat.Visible = false;
-                tabControl1.TabPages.Remove(GB_Constants);
-            }
-            NUD_Flag.Maximum = flags.Length - 1;
-            NUD_Flag.Text = "0";
-            c_CustomFlag.Checked = flags[0];
+            WinFormsTranslator.ReformatDark(TC_Flags);
+            WinFormsTranslator.ReformatDark(TC_Const);
         }
 
-        private readonly bool[] flags;
-        private readonly ushort[] Constants;
-        private const string flagTag = "bool_";
-        private const string constTag = "const_";
-        private const string constCBTag = "cbconst_";
-        private const string flagLabelTag = "flag_";
-        private const string constLabelTag = "L_";
-        private bool editing;
-        private int constEntry = -1;
-        private string gamePrefix = "unk";
+        Text = $"{Text} ({version})";
 
-        private const ulong MagearnaConst = 0xCBE05F18356504AC;
-
-        private void B_Cancel_Click(object sender, EventArgs e)
+        if (CB_Stats.Items.Count > 0)
         {
-            Close();
+            CB_Stats.SelectedIndex = 0;
+        }
+        else
+        {
+            L_Stats.Visible = CB_Stats.Visible = MT_Stat.Visible = false;
+            tabControl1.TabPages.Remove(GB_Constants);
+        }
+        NUD_Flag.Maximum = editor.Flags.Length - 1;
+        NUD_Flag.Value = 0;
+        c_CustomFlag.Checked = editor.Flags[0];
+        editing = false;
+    }
+
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        tabControl1.SelectedIndex = 0;
+    }
+
+    private void B_Cancel_Click(object sender, EventArgs e)
+    {
+        Close();
+    }
+
+    private void B_Save_Click(object sender, EventArgs e)
+    {
+        Editor.Save();
+        Close();
+    }
+
+    private void AddFlagList(EventLabelCollection list, bool[] values)
+    {
+        FlagDict.Clear();
+        TC_Flags.TabPages.Clear();
+
+        var labels = list.Flag;
+        if (labels.Count == 0)
+        {
+            TC_Flags.Visible = false;
+            var research = new Label { Text = MsgResearchRequired, Name = "TLP_Flags_Research", ForeColor = WinFormsUtil.ColorWarn, AutoSize = true, Location = new Point(20, 20) };
+            GB_Flags.Controls.Add(research);
+            return;
         }
 
-        private void B_Save_Click(object sender, EventArgs e)
+        foreach (var group in labels.GroupBy(z => z.Type).OrderBy(z => z.Key))
         {
-            // Gather Updated Flags
-            foreach (CheckBox flag in TLP_Flags.Controls.OfType<CheckBox>())
-                flags[GetControlNum(flag)] = flag.Checked;
-            SAV.EventFlags = flags;
-
-            HandleSpecialFlags();
-
-            // Copy back Constants
-            ChangeConstantIndex(null, null); // Trigger Saving
-            SAV.EventConsts = Constants;
-            SAV.Data.CopyTo(Origin.Data, 0);
-            Origin.Edited = true;
-            Close();
-        }
-
-        private void HandleSpecialFlags()
-        {
-            if (SAV.SM) // Ensure magearna event flag has magic constant
+            var tab = new TabPage
             {
-                BitConverter.GetBytes(flags[3100] ? MagearnaConst : 0).CopyTo(SAV.Data, ((SAV7)SAV).QRSaveData + 0x168);
-            }
-        }
+                Name = $"Tab_F{group.Key}",
+                Text = WinFormsTranslator.TranslateEnum(group.Key, Main.CurrentLanguage),
+            };
 
-        private string[] GetStringList(string type)
-        {
-            switch (SAV.Version)
-            {
-                case GameVersion.X:
-                case GameVersion.Y:
-                    gamePrefix = "xy";
-                    break;
-                case GameVersion.OR:
-                case GameVersion.AS:
-                    gamePrefix = "oras";
-                    break;
-                case GameVersion.SN:
-                case GameVersion.MN:
-                    gamePrefix = "sm";
-                    break;
-                case GameVersion.US:
-                case GameVersion.UM:
-                    gamePrefix = "usum";
-                    break;
-                case GameVersion.DP:
-                    gamePrefix = "dp";
-                    break;
-                case GameVersion.Pt:
-                    gamePrefix = "pt";
-                    break;
-                case GameVersion.HGSS:
-                    gamePrefix = "hgss";
-                    break;
-                case GameVersion.BW:
-                    gamePrefix = "bw";
-                    break;
-                case GameVersion.B2W2:
-                    gamePrefix = "b2w2";
-                    break;
-                case GameVersion.R:
-                case GameVersion.S:
-                case GameVersion.RS:
-                    gamePrefix = "rs";
-                    break;
-                case GameVersion.E:
-                    gamePrefix = "e";
-                    break;
-                case GameVersion.FR:
-                case GameVersion.LG:
-                case GameVersion.FRLG:
-                    gamePrefix = "frlg";
-                    break;
-                case GameVersion.C:
-                    gamePrefix = "c";
-                    break;
-                default:
-                    return null;
-            }
-            return GameInfo.GetStrings(gamePrefix, GameInfo.CurrentLanguage, type);
-        }
+            var grid = CreateFlagGrid();
+            var search = CreateSearchBox(text => ApplyGridFilter(grid, text));
+            var host = CreateSearchHost(search, grid);
+            tab.Controls.Add(host);
+            TC_Flags.TabPages.Add(tab);
 
-        private void AddFlagList(string[] list)
-        {
-            if (list == null || list.Length == 0)
+            var cFlag = new DataGridViewCheckBoxColumn
             {
-                TLP_Flags.Controls.Add(new Label { Text = MsgResearchRequired, Name = "TLP_Flags_Research", ForeColor = Color.Red, AutoSize = true }, 0, 0);
-                return;
+                DisplayIndex = 0,
+                AutoSizeMode = DataGridViewAutoSizeColumnMode.AllCells,
+                SortMode = DataGridViewColumnSortMode.NotSortable,
+            };
+
+            var cLabel = new DataGridViewTextBoxColumn
+            {
+                DisplayIndex = 1,
+                AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
+                ReadOnly = true,
+                SortMode = DataGridViewColumnSortMode.NotSortable,
+            };
+
+            cFlag.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+            cLabel.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleLeft;
+
+            grid.Columns.Add(cFlag);
+            grid.Columns.Add(cLabel);
+
+            var grouped = group.ToList();
+            grid.Rows.Add(grouped.Count);
+
+            for (var i = 0; i < grouped.Count; i++)
+                FlagDict[grouped[i].Index] = (grid, i);
+
+            for (var i = 0; i < grouped.Count; i++)
+            {
+                var (name, index, _) = grouped[i];
+                var cells = grid.Rows[i].Cells;
+                cells[0].Value = values[index];
+                cells[1].Value = name;
             }
 
-            // Get list
-            List<int> num = new List<int>();
-            List<string> desc = new List<string>();
+            ApplyGridFilter(grid, string.Empty);
 
-            foreach (string[] split in list.Select(s => s.Split('\t')).Where(split => split.Length == 2))
+            grid.CellValueChanged += (_, e) =>
             {
-                try
+                if (e.ColumnIndex != 0 || e.RowIndex == -1)
+                    return;
+
+                var chk = (bool)grid.Rows[e.RowIndex].Cells[0].Value!;
+                var index = grouped[e.RowIndex].Index;
+                values[index] = chk;
+                if (NUD_Flag.Value == index)
+                    c_CustomFlag.Checked = chk;
+            };
+            grid.CellMouseUp += (_, e) =>
+            {
+                if (e.RowIndex == -1)
+                    return;
+
+                if (e.ColumnIndex == 0)
                 {
-                    var flagIndex = split[0];
-                    int n = TryParseHexDec(flagIndex);
-
-                    if (num.Contains(n))
-                        continue;
-                    num.Add(n);
-                    desc.Add(split[1]);
+                    grid.EndEdit();
+                    return;
                 }
-                catch { }
-            }
-            if (num.Count == 0)
+
+                if (e.ColumnIndex != 1)
+                    return;
+
+                var chk = (bool)grid.Rows[e.RowIndex].Cells[0].Value!;
+                grid.Rows[e.RowIndex].Cells[0].Value = !chk;
+                var index = grouped[e.RowIndex].Index;
+                values[index] = !chk;
+                if (NUD_Flag.Value == index)
+                    c_CustomFlag.Checked = !chk;
+            };
+        }
+    }
+
+    private static void ApplyGridFilter(DataGridView grid, string text)
+    {
+        var query = text.Trim();
+        var hasQuery = query.Length != 0;
+        foreach (DataGridViewRow row in grid.Rows)
+        {
+            if (row.Cells.Count < 2)
+                continue;
+            if (!hasQuery)
             {
-                TLP_Flags.Controls.Add(new Label { Text = MsgResearchRequired, Name = "TLP_Flags_Research", ForeColor = Color.Red, AutoSize = true }, 0, 0);
-                return;
+                row.Visible = true;
+                continue;
             }
 
-            for (int i = 0; i < num.Count; i++)
-            {
-                var lbl = new Label
-                {
-                    Text = desc[i],
-                    Name = gamePrefix + flagLabelTag + num[i].ToString("0000"),
-                    Margin = Padding.Empty,
-                    AutoSize = true
-                };
-                var chk = new CheckBox
-                {
-                    Name = flagTag + num[i].ToString("0000"),
-                    CheckAlign = ContentAlignment.MiddleLeft,
-                    Margin = Padding.Empty,
-                    Checked = flags[num[i]],
-                    AutoSize = true
-                };
-                chk.CheckStateChanged += ToggleFlag;
-                lbl.Click += (sender, e) => chk.Checked ^= true;
-                TLP_Flags.Controls.Add(chk, 0, i);
-                TLP_Flags.Controls.Add(lbl, 1, i);
-            }
+            var value = row.Cells[1].Value?.ToString() ?? string.Empty;
+            row.Visible = value.Contains(query, StringComparison.CurrentCultureIgnoreCase);
+        }
+    }
+
+    private static DoubleBufferedDataGridView CreateFlagGrid() => new()
+    {
+        AllowUserToAddRows = false,
+        AllowUserToDeleteRows = false,
+        AllowUserToResizeColumns = false,
+        AllowUserToResizeRows = false,
+        BackgroundColor = SystemColors.ControlLightLight,
+        BorderStyle = BorderStyle.None,
+        ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.Single,
+        ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize,
+        ColumnHeadersVisible = false,
+        Dock = DockStyle.Fill,
+        EditMode = DataGridViewEditMode.EditOnEnter,
+        Margin = Padding.Empty,
+        MultiSelect = false,
+        RowHeadersVisible = false,
+        SelectionMode = DataGridViewSelectionMode.CellSelect,
+        ShowEditingIcon = false,
+    };
+
+    private void AddConstList(EventLabelCollection list, ushort[] values)
+    {
+        WorkDict.Clear();
+        TC_Const.TabPages.Clear();
+
+        var labels = list.Work;
+        if (labels.Count == 0)
+        {
+            TC_Const.Visible = false;
+            GB_Constants.Controls.Add(new Label { Text = MsgResearchRequired, Name = "TLP_Const_Research", ForeColor = WinFormsUtil.ColorWarn, AutoSize = true, Location = new Point(20, 20) });
+            return;
         }
 
-        private static int TryParseHexDec(string flag)
+        foreach (var group in labels.GroupBy(z => z.Type).OrderBy(z => z.Key))
         {
-            if (!flag.StartsWith("0x"))
-                return Convert.ToInt16(flag);
-            flag = flag.Substring(2);
-            return Convert.ToInt16(flag, 16);
-        }
-
-        private void AddConstList(string[] list)
-        {
-            if (list == null || list.Length == 0)
+            var tab = new TabPage
             {
-                TLP_Const.Controls.Add(new Label { Text = MsgResearchRequired, Name = "TLP_Const_Research", ForeColor = Color.Red, AutoSize = true }, 0, 0);
-                return;
-            }
+                Name = $"Tab_W{group.Key}",
+                Text = WinFormsTranslator.TranslateEnum(group.Key, Main.CurrentLanguage),
+            };
 
-            // Get list
-            List<int> num = new List<int>();
-            List<string> desc = new List<string>();
-            List<string> enums = new List<string>();
+            var panel = CreateConstPanel();
+            TC_Const.TabPages.Add(tab);
 
-            foreach (string[] split in list.Select(s => s.Split('\t')).Where(split => split.Length == 2 || split.Length == 3))
+            var grouped = group.ToList();
+            var rows = new List<(string Search, Label Label, ComboBox Combo, NumericUpDown Numeric)>(grouped.Count);
+            for (var i = 0; i < grouped.Count; i++)
             {
-                try
-                {
-                    var c = split[0];
-                    int n = TryParseHexDecConst(c);
-
-                    if (num.Contains(n))
-                        continue;
-                    num.Add(n);
-                    desc.Add(split[1]);
-                    enums.Add(split.Length == 3 ? split[2] : string.Empty);
-                }
-                catch { }
-            }
-            if (num.Count == 0)
-            {
-                TLP_Const.Controls.Add(new Label { Text = MsgResearchRequired, Name = "TLP_Const_Research", ForeColor = Color.Red, AutoSize = true }, 0, 0);
-                return;
-            }
-
-            for (int i = 0; i < num.Count; i++)
-            {
-                var lbl = new Label
-                {
-                    Text = desc[i],
-                    Name = gamePrefix + constLabelTag + num[i].ToString("0000"),
-                    Margin = Padding.Empty,
-                    AutoSize = true
-                };
+                var entry = grouped[i];
+                var lbl = new Label { Text = entry.Name, Margin = Padding.Empty, AutoSize = true };
                 var mtb = new NumericUpDown
                 {
                     Maximum = ushort.MaxValue,
                     Minimum = ushort.MinValue,
-                    Value = Constants[num[i]],
-                    Name = constTag + num[i].ToString("0000"),
                     Margin = Padding.Empty,
                     Width = 50,
                 };
 
-                var map = new[] { new { Text = "Custom", Value = -1 } }.ToList();
-
-                if (!string.IsNullOrWhiteSpace(enums[i]))
-                {
-                    foreach (var entry in enums[i].Split(','))
-                    {
-                        var spl = entry.Split(':');
-                        map.Add(new { Text = spl[1], Value = Convert.ToInt32(spl[0])});
-                    }
-                }
+                var map = entry.PredefinedValues.Select(z => new ComboItem(z.Name, z.Value)).ToList();
                 var cb = new ComboBox
                 {
-                    ValueMember = "Value",
-                    DisplayMember = "Text",
                     Margin = Padding.Empty,
                     Width = 150,
-                    Name = constCBTag + num[i].ToString("0000"),
                     DropDownStyle = ComboBoxStyle.DropDownList,
                     BindingContext = BindingContext,
-                    DataSource = map,
-                    SelectedIndex = 0,
-                    DropDownWidth = Width + 100
                 };
-                cb.SelectedValueChanged += ToggleConst;
-                mtb.TextChanged += ToggleConst;
-                TLP_Const.Controls.Add(lbl, 0, i);
-                TLP_Const.Controls.Add(cb, 1, i);
-                TLP_Const.Controls.Add(mtb, 2, i);
-                if (map.Any(val => val.Value == Constants[num[i]]))
+                if (Application.IsDarkModeEnabled)
+                    WinFormsTranslator.ReformatDark(cb);
+                var font = cb.Font;
+                cb.DropDownWidth = entry.PredefinedValues.Max(z => TextRenderer.MeasureText(z.Name, font).Width);
+                cb.InitializeBinding();
+                cb.DataSource = map;
+
+                lbl.Click += (_, _) => mtb.Value = 0;
+                bool updating = false;
+                mtb.ValueChanged += ChangeConstValue;
+                void ChangeConstValue(object? sender, EventArgs e)
                 {
-                    cb.SelectedValue = (int)Constants[num[i]];
+                    if (updating)
+                        return;
+
+                    updating = true;
+                    var value = (ushort)mtb.Value;
+                    var (_, valueID) = map.Find(z => z.Value == value) ?? map[0];
+                    if (WinFormsUtil.GetIndex(cb) != valueID)
+                        cb.SelectedValue = valueID;
+
+                    Editor.Values[entry.Index] = value;
+                    if (CB_Stats.SelectedIndex == entry.Index)
+                        MT_Stat.Text = ((int)mtb.Value).ToString();
+                    updating = false;
                 }
+                cb.SelectedValueChanged += (_, _) =>
+                {
+                    if (editing || updating)
+                        return;
+                    var value = WinFormsUtil.GetIndex(cb);
+                    mtb.Value = value == NamedEventConst.CustomMagicValue ? 0 : value;
+                };
+
+                mtb.Value = values[entry.Index];
+                if (mtb.Value == 0)
+                    ChangeConstValue(this, EventArgs.Empty);
+
+                rows.Add((entry.Name, lbl, cb, mtb));
+                WorkDict.Add(entry.Index, mtb);
             }
+
+            ApplyConstFilter(panel, rows, string.Empty);
+            var search = CreateSearchBox(text => ApplyConstFilter(panel, rows, text));
+            var host = CreateSearchHost(search, panel);
+            tab.Controls.Add(host);
+        }
+    }
+
+    private static void ApplyConstFilter(TableLayoutPanel panel, IReadOnlyList<(string Search, Label Label, ComboBox Combo, NumericUpDown Numeric)> rows, string text)
+    {
+        var query = text.Trim();
+        var hasQuery = query.Length != 0;
+
+        panel.SuspendLayout();
+        panel.Controls.Clear();
+        var rowIndex = 0;
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            if (hasQuery && !row.Search.Contains(query, StringComparison.CurrentCultureIgnoreCase))
+                continue;
+
+            panel.Controls.Add(row.Label, 0, rowIndex);
+            panel.Controls.Add(row.Combo, 1, rowIndex);
+            panel.Controls.Add(row.Numeric, 2, rowIndex);
+            rowIndex++;
+        }
+        panel.ResumeLayout();
+    }
+
+    private static TextBox CreateSearchBox(Action<string> applyFilter)
+    {
+        var box = new TextBox
+        {
+            PlaceholderText = "Search...",
+            Dock = DockStyle.Top,
+            Margin = Padding.Empty,
+        };
+        if (Application.IsDarkModeEnabled)
+            WinFormsTranslator.ReformatDark(box);
+
+        var timer = new Timer { Interval = 150 };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            applyFilter(box.Text);
+        };
+        box.TextChanged += (_, _) =>
+        {
+            timer.Stop();
+            timer.Start();
+        };
+        box.Disposed += (_, _) => timer.Dispose();
+        return box;
+    }
+
+    private static Panel CreateSearchHost(TextBox search, Control content)
+    {
+        var host = new Panel
+        {
+            Dock = DockStyle.Fill,
+            Margin = Padding.Empty,
+        };
+        content.Dock = DockStyle.Fill;
+        host.Controls.Add(content);
+        host.Controls.Add(search);
+        return host;
+    }
+
+    private static TableLayoutPanel CreateConstPanel()
+    {
+        var panel = new TableLayoutPanel
+        {
+            AutoScroll = true,
+            ColumnCount = 3,
+            Dock = DockStyle.Fill,
+            Margin = new Padding(4),
+            Name = "TLP_Const",
+            RowCount = 1,
+        };
+        panel.ColumnStyles.Add(new ColumnStyle());
+        panel.ColumnStyles.Add(new ColumnStyle());
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 485F));
+        panel.RowStyles.Add(new RowStyle());
+        panel.RowStyles.Add(new RowStyle());
+        panel.Scroll += WinFormsUtil.PanelScroll;
+        return panel;
+    }
+
+    private void ChangeCustomBool(object sender, EventArgs e)
+    {
+        if (editing)
+            return;
+        editing = true;
+        var index = (int)NUD_Flag.Value;
+        Editor.Flags[index] = c_CustomFlag.Checked;
+        if (FlagDict.TryGetValue(index, out var result))
+            result.Grid.Rows[result.RowIndex].Cells[0].Value = c_CustomFlag.Checked;
+        editing = false;
+    }
+
+    private void ChangeCustomFlag(object sender, EventArgs e)
+    {
+        int flag = (int)NUD_Flag.Value;
+        c_CustomFlag.Checked = Editor.Flags[flag];
+    }
+
+    private void ChangeCustomFlag(object sender, KeyEventArgs e) => ChangeCustomFlag(sender, (EventArgs)e);
+
+    private void ChangeConstantIndex(object sender, EventArgs e)
+    {
+        var constants = Editor.Values;
+        var index = CB_Stats.SelectedIndex;
+        MT_Stat.Text = constants[index].ToString();
+    }
+
+    private void ChangeCustomConst(object sender, EventArgs e)
+    {
+        if (editing)
+            return;
+        editing = true;
+        var index = CB_Stats.SelectedIndex;
+        var parse = ushort.TryParse(MT_Stat.Text, out var value) ? value : (ushort)0;
+        Editor.Values[index] = parse;
+        if (WorkDict.TryGetValue(index, out var mtb))
+            mtb.Value = parse;
+        editing = false;
+    }
+
+    private void ChangeSAV(object sender, EventArgs e) => ChangeSAV();
+
+    private void ChangeSAV()
+    {
+        if (TB_NewSAV.Text.Length != 0 && TB_OldSAV.Text.Length != 0)
+            DiffSaves();
+    }
+
+    private void OpenSAV(object sender, EventArgs e)
+    {
+        using var ofd = new OpenFileDialog();
+        ofd.Title = MsgFileLoadSaveSelectGame;
+        if (ofd.ShowDialog() == DialogResult.OK)
+            LoadSAV(sender, ofd.FileName);
+    }
+
+    private void LoadSAV(object sender, string path)
+    {
+        var dest = sender == B_LoadOld ? TB_OldSAV : TB_NewSAV;
+        dest.Text = path;
+    }
+
+    private void DiffSaves()
+    {
+        var diff = new EventBlockDiff<IEventFlag37, ushort>(TB_OldSAV.Text, TB_NewSAV.Text);
+        if (diff.Message != EventWorkDiffCompatibility.Valid)
+        {
+            WinFormsUtil.Alert(diff.Message.GetMessage());
+            return;
         }
 
-        private static int TryParseHexDecConst(string c)
+        TB_IsSet.Text = string.Join(", ", diff.SetFlags.Select(z => $"{z:0000}"));
+        TB_UnSet.Text = string.Join(", ", diff.ClearedFlags.Select(z => $"{z:0000}"));
+
+        if (diff.WorkDiff.Count == 0)
         {
-            if (!c.StartsWith("0x40"))
-                return Convert.ToInt16(c);
-            c = c.Substring(4);
-            return Convert.ToInt16(c, 16);
+            WinFormsUtil.Alert("No Event Constant diff found.");
+            return;
         }
 
-        private static int GetControlNum(Control c)
-        {
-            try
-            {
-                string source = c.Name.Split('_')[1];
-                return Convert.ToInt32(source);
-            }
-            catch { return 0; }
-        }
+        var promptCopy = WinFormsUtil.Prompt(MessageBoxButtons.YesNo, "Copy Event Constant diff to clipboard?");
+        if (promptCopy == DialogResult.Yes)
+            WinFormsUtil.SetClipboardText(string.Join(Environment.NewLine, diff.WorkDiff));
+    }
 
-        private void ChangeCustomBool(object sender, EventArgs e)
+    private static void Main_DragEnter(object? sender, DragEventArgs? e)
+    {
+        if (e?.Data is null)
+            return;
+        if (e.Data.GetDataPresent(DataFormats.FileDrop))
+            e.Effect = DragDropEffects.Copy;
+    }
+
+    private void Main_DragDrop(object? sender, DragEventArgs? e)
+    {
+        if (e?.Data?.GetData(DataFormats.FileDrop) is not string[] { Length: not 0 } files)
+            return;
+
+        foreach (var file in files)
         {
-            if (editing)
+            var result = this.SelectNewOld(file, B_LoadNew.Text, B_LoadOld.Text);
+            if (result == DualDiffSelection.New)
+                TB_NewSAV.Text = file;
+            else if (result == DualDiffSelection.Old)
+                TB_OldSAV.Text = file;
+            else if (ModifierKeys == Keys.Escape)
                 return;
-            editing = true;
-            flags[(int)NUD_Flag.Value] = c_CustomFlag.Checked;
-            var name = flagTag + NUD_Flag.Value.ToString("0000");
-            if (TLP_Flags.Controls[name] is CheckBox c)
-                c.Checked = c_CustomFlag.Checked;
-            editing = false;
         }
-
-        private void ChangeCustomFlag(object sender, EventArgs e)
-        {
-            int flag = (int)NUD_Flag.Value;
-            if (flag >= flags.Length)
-            {
-                c_CustomFlag.Checked = false;
-                c_CustomFlag.Enabled = false;
-                NUD_Flag.BackColor = Color.Red;
-            }
-            else
-            {
-                c_CustomFlag.Enabled = true;
-                NUD_Flag.ResetBackColor();
-                c_CustomFlag.Checked = flags[flag];
-            }
-        }
-
-        private void ChangeCustomFlag(object sender, KeyEventArgs e)
-        {
-            ChangeCustomFlag(null, (EventArgs)e);
-        }
-
-        private void ToggleFlag(object sender, EventArgs e)
-        {
-            if (editing)
-                return;
-            editing = true;
-            int flagnum = GetControlNum((CheckBox) sender);
-            flags[flagnum] = ((CheckBox)sender).Checked;
-            if (NUD_Flag.Value == flagnum)
-                c_CustomFlag.Checked = flags[flagnum];
-            editing = false;
-        }
-
-        private void ChangeCustomConst(object sender, EventArgs e)
-        {
-            if (editing)
-                return;
-            editing = true;
-
-            Constants[CB_Stats.SelectedIndex] = (ushort)(Util.ToUInt32(((MaskedTextBox)sender).Text) & 0xFFFF);
-            var name = constTag + CB_Stats.SelectedIndex.ToString("0000");
-            if (TLP_Flags.Controls[name] is MaskedTextBox m)
-                m.Text = MT_Stat.Text;
-
-            editing = false;
-        }
-
-        private void ChangeConstantIndex(object sender, EventArgs e)
-        {
-            if (Constants.Length == 0)
-                return;
-            if (constEntry > -1) // Set Entry
-                Constants[constEntry] = (ushort)Math.Min(Util.ToUInt32(MT_Stat.Text), 0xFFFF);
-
-            constEntry = CB_Stats.SelectedIndex; // Get Entry
-            MT_Stat.Text = Constants[constEntry].ToString();
-        }
-
-        private void ToggleConst(object sender, EventArgs e)
-        {
-            if (editing)
-                return;
-
-            int constnum = GetControlNum((Control)sender);
-            if (sender is ComboBox cb)
-            {
-                var nud = (NumericUpDown)TLP_Const.GetControlFromPosition(2, TLP_Const.GetRow(cb));
-                var sel_val = (int)cb.SelectedValue;
-                editing = true;
-                nud.Enabled = sel_val == -1;
-                if (sel_val != -1)
-                    nud.Value = (ushort)sel_val;
-                Constants[constnum] = (ushort)Util.ToUInt32(nud.Text);
-                editing = false;
-            }
-            else if (sender is NumericUpDown nud)
-            {
-                editing = true;
-                Constants[constnum] = (ushort)Util.ToUInt32(nud.Text);
-                if (constnum == CB_Stats.SelectedIndex)
-                    MT_Stat.Text = Constants[constnum].ToString();
-                editing = false;
-            }
-        }
-
-        private void ChangeSAV(object sender, EventArgs e)
-        {
-            if (TB_NewSAV.Text.Length > 0 && TB_OldSAV.Text.Length > 0)
-                DiffSaves();
-        }
-
-        private void OpenSAV(object sender, EventArgs e)
-        {
-            OpenFileDialog ofd = new OpenFileDialog();
-            if (ofd.ShowDialog() == DialogResult.OK)
-                LoadSAV(sender, ofd.FileName);
-        }
-
-        private void LoadSAV(object sender, string path)
-        {
-            if (sender == B_LoadOld)
-                TB_OldSAV.Text = path;
-            else
-                TB_NewSAV.Text = path;
-        }
-
-        private void DiffSaves()
-        {
-            if (!File.Exists(TB_OldSAV.Text)) { WinFormsUtil.Alert(string.Format(MsgSaveNumberInvalid, 1)); return; }
-            if (!File.Exists(TB_NewSAV.Text)) { WinFormsUtil.Alert(string.Format(MsgSaveNumberInvalid, 2)); return; }
-            if (new FileInfo(TB_OldSAV.Text).Length > 0x100000) { WinFormsUtil.Alert(string.Format(MsgSaveNumberInvalid, 1)); return; }
-            if (new FileInfo(TB_NewSAV.Text).Length > 0x100000) { WinFormsUtil.Alert(string.Format(MsgSaveNumberInvalid, 2)); return; }
-
-            var s1 = SaveUtil.GetVariantSAV(TB_OldSAV.Text);
-            var s2 = SaveUtil.GetVariantSAV(TB_NewSAV.Text);
-            if (s1 == null) { WinFormsUtil.Alert(string.Format(MsgSaveNumberInvalid, 1)); return; }
-            if (s2 == null) { WinFormsUtil.Alert(string.Format(MsgSaveNumberInvalid, 2)); return; }
-
-            if (s1.GetType() != s2.GetType()) { WinFormsUtil.Alert(MsgSaveDifferentTypes, $"S1: {s1.GetType().Name}", $"S2: {s2.GetType().Name}"); return; }
-            if (s1.Version != s2.Version) { WinFormsUtil.Alert(MsgSaveDifferentVersions, $"S1: {s1.Version}", $"S2: {s2.Version}"); return; }
-
-            var tbIsSet = new List<int>();
-            var tbUnSet = new List<int>();
-            var r = new List<string>();
-            bool[] oldBits = s1.EventFlags;
-            bool[] newBits = s2.EventFlags;
-            var oldConst = s1.EventConsts;
-            var newConst = s2.EventConsts;
-
-            for (int i = 0; i < oldBits.Length; i++)
-            {
-                if (oldBits[i] != newBits[i])
-                    (newBits[i] ? tbIsSet : tbUnSet).Add(i);
-            }
-            TB_IsSet.Text = string.Join(", ", tbIsSet.Select(z => $"{z:0000}"));
-            TB_UnSet.Text = string.Join(", ", tbUnSet.Select(z => $"{z:0000}"));
-
-            for (int i = 0; i < newConst.Length; i++)
-            {
-                if (oldConst[i] != newConst[i])
-                    r.Add($"{i}: {oldConst[i]}->{newConst[i]}");
-            }
-
-            if (r.Count == 0)
-            {
-                WinFormsUtil.Alert("No Event Constant diff found.");
-                return;
-            }
-
-            if (DialogResult.Yes == WinFormsUtil.Prompt(MessageBoxButtons.YesNo, "Copy Event Constant diff to clipboard?"))
-                Clipboard.SetText(string.Join(Environment.NewLine, r));
-        }
-
-        private static void Main_DragEnter(object sender, DragEventArgs e)
-        {
-            if (e.Data.GetDataPresent(DataFormats.FileDrop))
-                e.Effect = DragDropEffects.Copy;
-        }
-
-        private void Main_DragDrop(object sender, DragEventArgs e)
-        {
-            string[] files = (string[])e.Data.GetData(DataFormats.FileDrop);
-            var dr = WinFormsUtil.Prompt(MessageBoxButtons.YesNo, Name, "Yes: Old Save" + Environment.NewLine + "No: New Save");
-            var button = dr == DialogResult.Yes ? B_LoadOld : B_LoadNew;
-            LoadSAV(button, files[0]);
-        }
+        ChangeSAV();
     }
 }

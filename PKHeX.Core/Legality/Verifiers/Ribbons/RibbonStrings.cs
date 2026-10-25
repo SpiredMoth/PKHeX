@@ -1,42 +1,53 @@
-﻿using System.Collections.Generic;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 
-namespace PKHeX.Core
+namespace PKHeX.Core;
+
+/// <summary>
+/// String Translation Utility
+/// </summary>
+public sealed class RibbonStrings
 {
+    private readonly Dictionary<string, string> RibbonNames = [];
+
     /// <summary>
-    /// String Translation Utility
+    /// Resets the Ribbon Dictionary to use the supplied set of Ribbon (Property) Names.
     /// </summary>
-    public static class RibbonStrings
+    /// <param name="lines">Array of strings that are tab separated with Property Name, \t, and Display Name.</param>
+    public RibbonStrings(ReadOnlySpan<string> lines)
     {
-        private static readonly Dictionary<string, string> RibbonNames = new Dictionary<string, string>();
+        RibbonNames.EnsureCapacity(lines.Length);
 
-        /// <summary>
-        /// Resets the Ribbon Dictionary to use the supplied set of Ribbon (Property) Names.
-        /// </summary>
-        /// <param name="lines">Array of strings that are tab separated with Property Name, \t, and Display Name.</param>
-        public static void ResetDictionary(IEnumerable<string> lines)
+        // Don't clear existing keys on reset; only update.
+        // A language will have the same keys (hopefully), only with differing values.
+        foreach (var line in lines)
         {
-            foreach (var line in lines)
-            {
-                string[] split = line.Split('\t');
-                if (split.Length != 2)
-                    continue;
-                if (RibbonNames.ContainsKey(split[0]))
-                    RibbonNames[split[0]] = split[1];
-                else
-                    RibbonNames.Add(split[0], split[1]);
-            }
+            var index = line.IndexOf('\t');
+            if (index < 0)
+                continue;
+            var text = line[(index + 1)..];
+            var name = line[..index];
+            RibbonNames[name] = text;
         }
+    }
 
-        /// <summary>
-        /// Returns the Ribbon Display Name for the corresponding <see cref="PKM"/> ribbon property name.
-        /// </summary>
-        /// <param name="propertyName">Ribbon property name</param>
-        /// <returns>Ribbon display name</returns>
-        public static string GetName(string propertyName)
-        {
-            if (RibbonNames.TryGetValue(propertyName, out string value))
-                return value;
-            return null;
-        }
+    /// <summary>
+    /// Returns the Ribbon Display Name for the corresponding <see cref="PKM"/> ribbon property name.
+    /// </summary>
+    /// <param name="propertyName">Ribbon property name</param>
+    /// <param name="result">Ribbon localized name</param>
+    /// <returns>True if exists</returns>
+    public bool GetNameSafe(string propertyName, [NotNullWhen(true)] out string? result) => RibbonNames.TryGetValue(propertyName, out result);
+
+    /// <returns>Ribbon display name</returns>
+    /// <inheritdoc cref="GetNameSafe"/>
+    public string GetName(string propertyName)
+    {
+        // Throw an exception with the requested property name as the message, rather than an ambiguous "key not present" message.
+        // We should ALWAYS have the key present as the input arguments are not user-defined, rather, they are from PKM property names.
+        if (!GetNameSafe(propertyName, out var value))
+            throw new KeyNotFoundException(propertyName);
+        return value;
     }
 }

@@ -1,224 +1,187 @@
-﻿using System.Collections.Generic;
+using System;
+using System.Collections.Generic;
+using System.Linq;
 
-namespace PKHeX.Core
+namespace PKHeX.Core;
+
+/// <summary>
+/// Facilitates interaction with a <see cref="SaveFile"/> or other data location's slot data.
+/// </summary>
+public sealed class SlotEditor<T>(SaveFile SAV)
 {
+    public readonly SlotChangelog Changelog = new(SAV);
+    public readonly SlotPublisher<T> Publisher = new();
+
+    private void NotifySlotChanged(ISlotInfo slot, SlotTouchType type, PKM pk) => Publisher.NotifySlotChanged(slot, type, pk);
+
     /// <summary>
-    /// Pushes slot update notifications out to all subscribers.
+    /// Notifies subscribers that a slot was modified externally.
     /// </summary>
-    public sealed class SlotPublisher
+    public void UpdateSlot(ISlotInfo slot)
     {
-        /// <summary>
-        /// All <see cref="ISlotViewer"/> instances that provide a view on individual <see cref="StorageSlotOffset"/> content.
-        /// </summary>
-        public List<ISlotViewer> Subscribers { get; } = new List<ISlotViewer>();
-
-        private SlotChange Previous;
-        private SlotTouchType PreviousType = SlotTouchType.None;
-
-        /// <summary>
-        /// Notifies all <see cref="Subscribers"/> with the latest slot change details.
-        /// </summary>
-        /// <param name="slot">Last interacted slot</param>
-        /// <param name="type">Last interacted slot interaction type</param>
-        public void NotifySlotChanged(SlotChange slot, SlotTouchType type)
-        {
-            foreach (var sub in Subscribers)
-                ResetView(sub, slot, type);
-            Previous = slot;
-            PreviousType = type;
-        }
-
-        private void ResetView(ISlotViewer sub, SlotChange slot, SlotTouchType type)
-        {
-            if (Previous != null)
-                sub.NotifySlotOld(Previous);
-
-            int index = sub.ViewIndex;
-            if (index == slot.Box)
-                sub.NotifySlotChanged(slot, type);
-        }
-
-        public void ResetView(ISlotViewer sub) => ResetView(sub, Previous, PreviousType);
-    }
-
-    public interface ISlotViewer
-    {
-        /// <summary>
-        /// Current index the viewer is viewing.
-        /// </summary>
-        int ViewIndex { get; }
-
-        /// <summary>
-        /// Notification that the <see cref="previous"/> slot is no longer the last interacted slot.
-        /// </summary>
-        /// <param name="previous">Last interacted slot</param>
-        void NotifySlotOld(SlotChange previous);
-
-        /// <summary>
-        /// Notification that the <see cref="slot"/> has just been interacted with.
-        /// </summary>
-        /// <param name="slot">Last interacted slot</param>
-        /// <param name="type">Last interacted slot interaction type</param>
-        void NotifySlotChanged(SlotChange slot, SlotTouchType type);
+        var pk = slot.Read(SAV);
+        NotifySlotChanged(slot, SlotTouchType.Set, pk);
     }
 
     /// <summary>
-    /// Facilitates interaction with a <see cref="SaveFile"/> or other data location's slot data.
+    /// Gets data from a slot.
     /// </summary>
-    public sealed class SlotEditor
+    /// <param name="slot">Slot to retrieve from.</param>
+    /// <returns>Operation succeeded or not via enum value.</returns>
+    public PKM Get(ISlotInfo slot)
     {
-        private readonly SaveFile SAV;
-        public SlotPublisher Publisher { get; } = new SlotPublisher();
+        // Reading from a slot is always allowed.
+        var pk = slot.Read(SAV);
+        NotifySlotChanged(slot, SlotTouchType.Get, pk);
+        return pk;
+    }
 
-        private readonly Stack<SlotChange> UndoStack = new Stack<SlotChange>();
-        private readonly Stack<SlotChange> RedoStack = new Stack<SlotChange>();
+    /// <summary>
+    /// Sets data to a slot.
+    /// </summary>
+    /// <param name="slot">Slot to be set to.</param>
+    /// <param name="pk">Data to set.</param>
+    /// <param name="type">Type of slot action</param>
+    /// <returns>Operation succeeded or not via enum value.</returns>
+    public SlotTouchResult Set(ISlotInfo slot, PKM pk, SlotTouchType type = SlotTouchType.Set)
+    {
+        if (!slot.CanWriteTo(SAV))
+            return SlotTouchResult.FailWrite;
 
-        public SlotEditor(SaveFile sav) => SAV = sav;
-        private void NotifySlotChanged(SlotChange slot, SlotTouchType type) => Publisher.NotifySlotChanged(slot, type);
+        using var change = Changelog.Begin(slot);
+        var settings = type != SlotTouchType.Set ? EntityImportSettings.None : default;
+        if (!slot.WriteTo(SAV, pk, settings))
+            return SlotTouchResult.FailWrite;
 
-        /// <summary>
-        /// Gets data from a slot.
-        /// </summary>
-        /// <param name="slot">Slot to retrieve from.</param>
-        /// <returns>Operation succeeded or not via enum value.</returns>
-        public PKM Get(SlotChange slot)
+        change.Commit();
+        NotifySlotChanged(slot, type, pk);
+        return SlotTouchResult.Success;
+    }
+
+    /// <summary>
+    /// Deletes a slot.
+    /// </summary>
+    /// <param name="slot">Slot to be deleted.</param>
+    /// <returns>Operation succeeded or not via enum value.</returns>
+    public SlotTouchResult Delete(ISlotInfo slot)
+    {
+        if (!slot.CanWriteTo(SAV))
+            return SlotTouchResult.FailDelete;
+
+        var pk = SAV.BlankPKM;
+        var settings = EntityImportSettings.None;
+
+        using var change = Changelog.Begin(slot);
+
+        if (!slot.WriteTo(SAV, pk, settings))
+            return SlotTouchResult.FailDelete;
+
+        change.Commit();
+        NotifySlotChanged(slot, SlotTouchType.Delete, pk);
+        return SlotTouchResult.Success;
+    }
+
+    /// <summary>
+    /// Swaps two slots as one undoable operation.
+    /// </summary>
+    /// <param name="source">Source slot to be switched with <see cref="dest"/>.</param>
+    /// <param name="dest">Destination slot to be switched with <see cref="source"/>.</param>
+    /// <returns>Operation succeeded or not via enum value.</returns>
+    public SlotTouchResult Swap(ISlotInfo source, ISlotInfo dest)
+    {
+        if (!source.CanWriteTo(SAV))
+            return SlotTouchResult.FailSource;
+        if (!dest.CanWriteTo(SAV))
+            return SlotTouchResult.FailDestination;
+
+        var settings = EntityImportSettings.None;
+
+        var sourcePK = source.Read(SAV);
+        var destPK = dest.Read(SAV);
+
+        using var change = Changelog.Begin([source, dest]);
+
+        if (!source.WriteTo(SAV, destPK, settings))
+            return SlotTouchResult.FailSource;
+
+        if (!dest.WriteTo(SAV, sourcePK, settings))
+            return SlotTouchResult.FailDestination;
+
+        change.Commit();
+
+        NotifySlotChanged(source, SlotTouchType.Swap, destPK);
+        NotifySlotChanged(dest, SlotTouchType.Swap, sourcePK);
+
+        return SlotTouchResult.Success;
+    }
+
+    /// <summary>
+    /// Performs a batch operation against multiple slots as one undoable operation.
+    /// </summary>
+    /// <param name="slots">Slots affected by the operation.</param>
+    /// <param name="action">
+    /// Action which performs the actual modifications. The slots have already
+    /// been captured by the changelog when this action executes.
+    /// </param>
+    public bool Batch(IEnumerable<ISlotInfo> slots, Action<IReadOnlyList<ISlotInfo>> action)
+    {
+        var affected = slots.ToArray();
+
+        if (affected.Length == 0)
+            return false;
+
+        foreach (var slot in affected)
         {
-            // Reading from a slot is always allowed.
-            var pk = ReadSlot(slot);
-            NotifySlotChanged(slot, SlotTouchType.Get);
-            return pk;
+            if (!slot.CanWriteTo(SAV))
+                return false;
         }
 
-        /// <summary>
-        /// Sets data to a slot.
-        /// </summary>
-        /// <param name="slot">Slot to be set to.</param>
-        /// <param name="pkm">Data to set.</param>
-        /// <returns>Operation succeeded or not via enum value.</returns>
-        public SlotTouchResult Set(SlotChange slot, PKM pkm)
+        using var change = Changelog.Begin(affected);
+
+        action(affected);
+        // Disposing `change` rolls back the captured state, even if the action throws.
+
+        change.Commit();
+        foreach (var slot in affected)
         {
-            if (CantWrite(slot))
-                return SlotTouchResult.FailWrite;
-
-            WriteSlot(slot, pkm);
-            NotifySlotChanged(slot, SlotTouchType.Set);
-
-            return SlotTouchResult.Success;
+            var pk = slot.Read(SAV);
+            NotifySlotChanged(slot, SlotTouchType.Set, pk);
         }
 
-        /// <summary>
-        /// Deletes a slot.
-        /// </summary>
-        /// <param name="slot">Slot to be deleted.</param>
-        /// <returns>Operation succeeded or not via enum value.</returns>
-        public SlotTouchResult Delete(SlotChange slot)
+        return true;
+    }
+
+    /// <summary>
+    /// Undoes the last change and notifies every affected slot.
+    /// </summary>
+    public void Undo()
+    {
+        if (!Changelog.CanUndo)
+            return;
+
+        var slots = Changelog.Undo();
+
+        foreach (var slot in slots)
         {
-            if (CantWrite(slot))
-                return SlotTouchResult.FailDelete;
-
-            DeleteSlot(slot);
-            NotifySlotChanged(slot, SlotTouchType.Delete);
-
-            return SlotTouchResult.Success;
+            var pk = slot.Read(SAV);
+            NotifySlotChanged(slot, SlotTouchType.Undo, pk);
         }
+    }
 
-        /// <summary>
-        /// Swaps two slots.
-        /// </summary>
-        /// <param name="source">Source slot to be switched with <see cref="dest"/>.</param>
-        /// <param name="dest">Destination slot to be switched with <see cref="source"/>.</param>
-        /// <returns>Operation succeeded or not via enum value.</returns>
-        public SlotTouchResult Swap(SlotChange source, SlotChange dest)
+    /// <summary>
+    /// Redoes the last undone change and notifies every affected slot.
+    /// </summary>
+    public void Redo()
+    {
+        if (!Changelog.CanRedo)
+            return;
+
+        var slots = Changelog.Redo();
+
+        foreach (var slot in slots)
         {
-            if (CantWrite(source))
-                return SlotTouchResult.FailSource;
-            if (CantWrite(dest))
-                return SlotTouchResult.FailDestination;
-
-            NotifySlotChanged(source, SlotTouchType.None);
-            NotifySlotChanged(dest, SlotTouchType.Swap);
-
-            return SlotTouchResult.Success;
-        }
-
-        public bool CantWrite(SlotChange c)
-        {
-            if (c.Type > StorageSlotType.Party)
-                return true;
-            return SAV.IsSlotOverwriteProtected(c.Box, c.Slot);
-        }
-
-        private PKM ReadSlot(StorageSlotOffset slot) => SAV.GetPKM(slot);
-
-        private void WriteSlot(SlotChange slot, PKM pkm)
-        {
-            if (slot.IsParty)
-            {
-                int count = SAV.PartyCount;
-                if (slot.Slot > count)
-                    slot.Slot = count;
-                SAV.SetPartySlot(pkm, slot.Offset);
-            }
-            else
-            {
-                AddUndo(slot);
-                SAV.SetStoredSlot(pkm, slot.Offset);
-            }
-        }
-
-        private void DeleteSlot(SlotChange slot)
-        {
-            var pkm = slot.PKM;
-            if (slot.IsParty)
-            {
-                SAV.SetPartySlot(pkm, slot.Offset);
-                slot.Slot = SAV.PartyCount;
-            }
-            else
-            {
-                AddUndo(slot);
-                SAV.SetStoredSlot(pkm, slot.Offset);
-            }
-        }
-
-        public bool CanUndo => UndoStack.Count != 0;
-        public bool CanRedo => RedoStack.Count != 0;
-
-        public void Undo()
-        {
-            if (UndoStack.Count == 0)
-                return;
-
-            var change = UndoStack.Pop();
-            if (change.Box < 0)
-                return;
-            AddRedo(change);
-            NotifySlotChanged(change, SlotTouchType.Set);
-        }
-
-        public void Redo()
-        {
-            if (RedoStack.Count == 0)
-                return;
-
-            var change = RedoStack.Pop();
-            if (change.Box < 0)
-                return;
-            AddUndo(change);
-            NotifySlotChanged(change, SlotTouchType.Set);
-        }
-
-        private void AddRedo(SlotChange change)
-        {
-            var slotChange = change.GetInverseData(SAV);
-            RedoStack.Push(slotChange);
-        }
-
-        private void AddUndo(SlotChange change)
-        {
-            var slotChange = change.GetInverseData(SAV);
-            UndoStack.Push(slotChange);
-            RedoStack.Clear();
+            var pk = slot.Read(SAV);
+            NotifySlotChanged(slot, SlotTouchType.Redo, pk);
         }
     }
 }

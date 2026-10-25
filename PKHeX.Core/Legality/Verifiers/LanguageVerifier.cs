@@ -1,73 +1,97 @@
-﻿using static PKHeX.Core.LegalityCheckStrings;
+using static PKHeX.Core.LegalityCheckResultCode;
+using static PKHeX.Core.GameVersion;
+using static PKHeX.Core.LanguageID;
 
-namespace PKHeX.Core
+namespace PKHeX.Core;
+
+/// <summary>
+/// Verifies the <see cref="PKM.Language"/>.
+/// </summary>
+public sealed class LanguageVerifier : Verifier
 {
-    /// <summary>
-    /// Verifies the <see cref="PKM.Language"/>.
-    /// </summary>
-    public sealed class LanguageVerifier : Verifier
+    protected override CheckIdentifier Identifier => CheckIdentifier.Language;
+
+    public override void Verify(LegalityAnalysis data)
     {
-        protected override CheckIdentifier Identifier => CheckIdentifier.Language;
-
-        public override void Verify(LegalityAnalysis data)
+        var pk = data.Entity;
+        var originalGeneration = data.Info.Generation;
+        var currentLanguage = (LanguageID)pk.Language;
+        var maxLanguageID = (LanguageID)Legal.GetMaxLanguageID(originalGeneration, data.EncounterOriginal.Context);
+        var enc = data.EncounterMatch;
+        if (!IsValidLanguageID(currentLanguage, maxLanguageID, pk, enc))
         {
-            var pkm = data.pkm;
-            int originalGeneration = data.Info.Generation;
-            int currentLanguage = pkm.Language;
-            int maxLanguageID = Legal.GetMaxLanguageID(originalGeneration);
+            data.AddLine(GetInvalid(Identifier, OTLanguageShouldBeLeq_0, (byte)maxLanguageID, (byte)currentLanguage));
+            return;
+        }
 
-            if (!IsValidLanguageID(currentLanguage, maxLanguageID, pkm))
-            {
-                data.AddLine(GetInvalid(string.Format(LOTLanguage, $"<={(LanguageID)maxLanguageID}", (LanguageID)currentLanguage)));
+        // Check for GTS trade sanitization.
+        if (pk.Format >= 4)
+            CheckGTS(data, pk, currentLanguage, originalGeneration);
+
+        if (originalGeneration <= 2)
+        {
+            // Korean Crystal does not exist, neither do Korean VC1
+            if (pk is { Korean: true, Version: not (GD or SI) })
+                data.AddLine(GetInvalid(OTLanguageCannotPlayOnVersion_0, (byte)pk.Version));
+
+            // Japanese VC is language locked; cannot obtain Japanese-Blue version as other languages.
+            if (pk is { Japanese: false, Version: BU })
+                data.AddLine(GetInvalid(OTLanguageCannotPlayOnVersion_0, (byte)pk.Version));
+        }
+    }
+
+    private void CheckGTS(LegalityAnalysis data, PKM pk, LanguageID currentLanguage, byte originalGeneration)
+    {
+        bool possiblyRomanizedG4 = false;
+        if (originalGeneration is 4 && currentLanguage is Korean && !pk.IsEgg)
+        {
+            // All OT names are half-width already, so they could have been manually entered.
+            possiblyRomanizedG4 = Gen4GlobalTradeRules.IsRomanizedKoreanTrainerName(pk);
+            // If not nicknamed, the sanitization also applies to the nickname text.
+            // Check that separately, there is some nuance with trade-backs.
+            if (possiblyRomanizedG4) // apply a tag to indicate to the checker, and also downstream checks.
+                data.AddLine(GetValid(GTSTrainerSanitized)); // acts as an info tag.
+        }
+
+        if (pk.Format == 4)
+        {
+            // Any Gen4 trainer can send/receive Korean language, but can't otherwise directly trade across the language barrier.
+            // Check for lockout of Korean GTS trades.
+            var tr = ParseSettings.ActiveTrainer;
+
+            // Check if it must have been traded across the GTS to its current residence.
+            if (tr is null || !Gen4GlobalTradeRules.IsRequiredGTS(tr, currentLanguage))
                 return;
-            }
 
-            // Korean Gen4 games can not trade with other Gen4 languages, but can use Pal Park with any Gen3 game/language.
-            if (pkm.Format == 4 && pkm.Gen4 && !IsValidG4Korean(currentLanguage)
-                && !(data.EncounterMatch is EncounterTrade x && (x.Species == 25 || x.Species == 129)) // ger magikarp / eng pikachu
-            )
-            {
-                bool kor = currentLanguage == (int)LanguageID.Korean;
-                var msgpkm = kor ? L_XKorean : L_XKoreanNon;
-                var msgsav = kor ? L_XKoreanNon : L_XKorean;
-                data.AddLine(GetInvalid(string.Format(LTransferOriginFInvalid0_1, msgpkm, msgsav)));
-                return;
-            }
+            // Check if it actually can be traded across the GTS.
+            var enc = data.EncounterMatch;
+            if (enc is EncounterTrade4PID { IsLanguageSwap: true })
+                return; // Can originate in Korean games and have international Language ID without traversing the GTS.
 
-            // Korean Crystal does not exist, neither do VC1
-            if (originalGeneration <= 2 && pkm.Korean && !GameVersion.GS.Contains((GameVersion)pkm.Version))
-            {
-                data.AddLine(GetInvalid(string.Format(LOTLanguage, $"!={(LanguageID)currentLanguage}", (LanguageID)currentLanguage)));
-            }
+            // Eggs and Classic Ribbon cannot be traded on GTS.
+            // If it must have been traded via GTS, it must have been sanitized if Korean.
+            if (pk.IsEgg)
+                data.AddLine(GetInvalid(GTSDisallowedTradedEgg));
+            else if (enc is IRibbonSetEvent4 { RibbonClassic: true })
+                data.AddLine(GetInvalid(GTSDisallowedClassicRibbon));
+            else if (currentLanguage == Korean && !possiblyRomanizedG4)
+                data.AddLine(GetInvalid(GTSTrainerSanitizedExpected));
+            else // OK
+                data.AddLine(GetValid(GTSTradedKoreanInternational));
         }
+    }
 
-        public static bool IsValidLanguageID(int currentLanguage, int maxLanguageID, PKM pkm)
-        {
-            if (currentLanguage == (int)LanguageID.UNUSED_6)
-                return false; // Language ID 6 is unused.
+    public static bool IsValidLanguageID(LanguageID currentLanguage, LanguageID maxLanguageID, PKM pk, IEncounterTemplate enc)
+    {
+        if (currentLanguage == UNUSED_6)
+            return false; // Language ID 6 is unused.
 
-            if (currentLanguage > maxLanguageID)
-                return false; //  Language not available (yet)
+        if (currentLanguage > maxLanguageID)
+            return false; //  Language not available (yet)
 
-            if (currentLanguage <= (int) LanguageID.Hacked && !Legal.IsValidMissingLanguage(pkm))
-                return false; // Missing Language value is not obtainable
+        if (currentLanguage == 0 && !(enc is EncounterTrade5BW && EncounterTrade5BW.IsValidMissingLanguage(pk)))
+            return false; // Missing Language value is not obtainable
 
-            return true; // Language is possible
-        }
-
-        /// <summary>
-        /// Check if the <see cref="currentLanguage"/> can exist in the Generation 4 savefile.
-        /// </summary>
-        /// <param name="currentLanguage"></param>
-        /// <returns></returns>
-        public static bool IsValidG4Korean(int currentLanguage)
-        {
-            bool savKOR = ParseSettings.ActiveTrainer.Language == (int) LanguageID.Korean;
-            bool pkmKOR = currentLanguage == (int) LanguageID.Korean;
-            if (savKOR == pkmKOR)
-                return true;
-
-            return ParseSettings.ActiveTrainer.Language < 0; // check not overriden by Legality settings
-        }
+        return true; // Language is possible
     }
 }
